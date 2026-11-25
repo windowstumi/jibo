@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800" viewBox="0 0 600 800">
+<defs><linearGradient id="coat" x2=".9" y2="1"><stop stop-color="#c7d4ff"/><stop offset="1" stop-color="#819cea"/></linearGradient><linearGradient id="hair" x2=".8" y2="1"><stop stop-color="#343b62"/><stop offset="1" stop-color="#59668a"/></linearGradient></defs>
+<ellipse cx="300" cy="771" rx="189" ry="17" fill="#4b5790" opacity=".1"/>
+<path d="M135 394Q119 303 155 175Q190 72 298 76Q424 70 453 190L462 407Z" fill="url(#hair)"/>
+<path d="M265 333h70v100h-70" fill="#f6d6c1"/>
+<path d="M263 353q37 21 74 0v21q-37 22-74 0" fill="#eac1aa"/>
+<path d="M207 396L264 381Q300 415 337 381L395 397Q459 411 474 485L496 753H104l23-268q13-72 80-89" fill="url(#coat)"/>
+<path d="M264 382l36 35-36 74-52-91zM337 382l-37 35 37 74 53-91" fill="#edf1ff"/>
+<path d="M300 421v320" stroke="#6a83cf" stroke-width="3" opacity=".6"/>
+<circle cx="312" cy="532" r="4" fill="#edf1ff"/><circle cx="312" cy="591" r="4" fill="#edf1ff"/>
+<path d="M157 523l30 212M443 523l-29 212" stroke="#7189cc" stroke-width="4" opacity=".4"/>
+<path d="M207 532q31 55 77 62l29 11q14 12-5 23-41 14-72-8l-72-51" fill="#f7d9c5"/>
+<path d="M398 528q-18 56-68 68l-31 10q-16 8-1 22 38 12 74-5l63-54" fill="#f7d9c5"/>
+<ellipse cx="183" cy="247" rx="19" ry="29" fill="#f3cfb9"/><ellipse cx="418" cy="247" rx="19" ry="29" fill="#f3cfb9"/>
+<path d="M185 179q20-71 113-68 98-4 118 77l-9 105q-18 66-108 71-88-7-107-72z" fill="#f8ddca"/>
+<path d="M177 211q7-107 119-112 114-1 132 115-58-20-82-78-31 65-109 70 35-27 44-56-53 55-104 61" fill="url(#hair)"/>
+<path d="M218 232q20-12 40-1M342 231q20-12 40 1" stroke="#5b5270" stroke-width="6" fill="none" stroke-linecap="round"/>
+<ellipse cx="240" cy="255" rx="10" ry="14" fill="#414868"/><ellipse cx="361" cy="255" rx="10" ry="14" fill="#414868"/>
+<circle cx="243" cy="251" r="3" fill="white"/><circle cx="364" cy="251" r="3" fill="white"/>
+<ellipse cx="219" cy="286" rx="21" ry="9" fill="#eca8a4" opacity=".45"/><ellipse cx="382" cy="286" rx="21" ry="9" fill="#eca8a4" opacity=".45"/>
+<path d="M298 268l-6 17h11" stroke="#ddb29b" stroke-width="3" fill="none" stroke-linecap="round"/>
+<path d="M287 310q13 10 27 0" stroke="#a96970" stroke-width="3" fill="none" stroke-linecap="round"/>
+<path d="M166 292q-16 83 32 132l-52-11-7-116M429 285q20 78-23 130l46-7 3-111" fill="url(#hair)"/>
+<path d="M372 153l29 12-17 15-26-16z" fill="#c9d7fc"/>
+<circle cx="399" cy="171" r="5" fill="#fff"/>
+</svg>

@@ -1,0 +1,70 @@
+{
+  "name": "yingbo-studio",
+  "version": "0.3.1",
+  "description": "Yingbo local virtual presenter desktop client",
+  "author": "Yingbo Studio",
+  "private": true,
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test:desktop": "node --test tests/desktop.test.cjs",
+    "build:backend": "python scripts/build_backend.py",
+    "pack": "electron-builder --dir",
+    "dist:win": "electron-builder --win portable --x64",
+    "dist:mac": "electron-builder --mac zip",
+    "dist:linux": "electron-builder --linux AppImage",
+    "smoke:desktop": "node scripts/smoke_desktop.cjs"
+  },
+  "devDependencies": {
+    "electron": "^40.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "studio.yingbo.presenter",
+    "productName": "Yingbo Studio",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/backend",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "artifactName": "Yingbo-Studio-${version}-${os}-${arch}.${ext}",
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "requestExecutionLevel": "user"
+    },
+    "mac": {
+      "target": [
+        "zip"
+      ],
+      "category": "public.app-category.video"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "AudioVideo"
+    },
+    "compression": "normal"
+  },
+  "allowScripts": {
+    "electron@40.10.6": true,
+    "electron-winstaller@5.4.0": true
+  }
+}
