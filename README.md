@@ -4,34 +4,35 @@
 
 ## 快速开始：全新克隆
 
-开发和打包需要 Python **3.12**、Node.js **22 或更新版本**、npm 和 Git。打包后的用户不需要安装这些环境。
+**Windows 10/11 x64：首次联网后运行一条命令即可。无需预装 Python、Node.js、npm 或 Java。** 脚本将固定版本的 Node.js、uv、Python 下载到项目的 `.runtime/`，在项目内创建 `.venv/` 和 `node_modules/`。不修改系统 PATH，不依赖开发者电脑上的其他目录。
 
 Windows PowerShell：
 
 ```powershell
 git clone https://github.com/windowstumi/jibo.git
 cd jibo
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
-npm ci
-.\start.ps1
+.\start.cmd
 ```
 
-如果本机执行策略阻止运行 `.ps1`，可直接启动，不必修改系统策略：
+也可以在资源管理器双击 `start.cmd`。单独安装环境或检查：
 
 ```powershell
-Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
-.\node_modules\electron\dist\electron.exe .
+.\setup.cmd          # 仅准备项目内环境
+.\check.cmd          # 环境、Python/Node 测试、桌面启动检查
 ```
 
 Windows 打包：
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-build.txt
-.\build.ps1
+.\build.cmd
+.\build.cmd -Target directory
 ```
 
-输出为 `release/Yingbo-Studio-0.3.1-win-x64.exe`。如只需目录版，运行 `./build.ps1 -Target directory`，输出 `release/win-unpacked/`，复制时必须保留整个目录。
+输出为 `release/Yingbo-Studio-0.3.1-win-x64.exe`。目录版位于 `release/win-unpacked/`，复制时必须保留整个目录。安装包内包含 Python 后台和 Electron，使用者不需安装开发环境。
+
+**Live2D 实验工具另行启用：** `setup.cmd -WithLive2D` 或 `live2d.cmd -Mode doctor`。它会把 PSD2Live 的便携版（含 Java）和拆层依赖放进本项目。用法见 [Live2D 工具说明](tools/avatar_pipeline/README.md)。生成图片仍需自己的图片 API 密钥；绑定需校准图层/关节配置，不能把实验脚本当作任意图片自动绑定服务。正式客户端目前仍使用原有 2.5D 渲染器。
+
+固定版本、校验下载、换路径重建、离线范围、支持平台和验证方式见 [环境与打包说明](docs/PORTABLE.md)。macOS/Linux 仍采用后文的手动安装方式，并须在目标系统构建；本次一键环境入口仅支持 Windows x64。
 
 **Git 仓库不包含本机生成的角色、安装包或已配置密钥。** 全新克隆后需要自行配置图片服务、生成场景，或导入已有项目包。请勿直接照搬本文提到的本机验收路径。
 
@@ -72,21 +73,19 @@ Windows 打包：
 
 ## 开发启动与构建
 
-执行 `start.ps1` 启动客户端；它会复用项目的 `data/`。请先完成上面的依赖安装。
+执行 `start.cmd` 或 `start.ps1` 启动客户端；它会自动准备环境并复用项目的 `data/`。
 
-新 Windows 开发环境：
+Windows 一键环境：
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-build.txt
-npm ci
-.\start.ps1
+.\setup.cmd
+.\start.cmd
 ```
 
 Windows 打包：
 
 ```powershell
-.\build.ps1
+.\build.cmd
 # 或分步执行
 .\.venv\Scripts\python.exe scripts/build_backend.py
 npm run dist:win
@@ -105,7 +104,7 @@ npm run dist:mac    # macOS ZIP / .app
 # 或 npm run dist:linux  # Linux AppImage
 ```
 
-不要把 Windows 的 `build/backend/` 拿到 macOS/Linux 打包。Python、Pillow 等包含平台相关二进制，必须在对应 OS/CPU 上重建。`.github/workflows/desktop.yml` 提供可手动触发的三个系统构建流程，但当前只在 Windows 实测。macOS Intel/Apple Silicon 需分别构建，Linux 仍需验证发行版及图形环境兼容性。
+不要把 Windows 的 `build/backend/` 拿到 macOS/Linux 打包。Python、Pillow 等包含平台相关二进制，必须在对应 OS/CPU 上重建。`requirements-build.lock.txt` 是 Windows x64 的带哈希构建锁；macOS/Linux 使用 `requirements-build.txt` 在目标平台解析构建工具。`.github/workflows/desktop.yml` 提供可手动触发的三个系统构建流程，Windows 走同一套一键脚本。macOS Intel/Apple Silicon 需分别构建，其他平台结果不等于本机实测。
 
 如果宿主设置了 `ELECTRON_RUN_AS_NODE`，启动 Electron 前需清除；`start.ps1` 已处理。可通过 `YINGBO_PYTHON` 指定开发时的 Python，通过 `YINGBO_DATA_DIR` 指定数据目录，通过 `YINGBO_PORT` 指定首选端口。
 
@@ -183,7 +182,7 @@ node scripts/smoke_desktop.cjs "release\Yingbo-Studio-0.3.1-win-x64.exe" "D:\You
 
 ## Git 提交范围
 
-保留源码、测试、内置示例资源、npm锁文件、Python依赖、构建脚本和说明。`.gitignore` 排除 `.venv/`、`node_modules/`、`build/`、`release/`、`data/`、`YingboData/`、测试输出、SQLite、日志、环境密钥文件、证书以及 `.vs/` 等 IDE 缓存。
+保留源码、测试、内置示例资源、npm锁文件、Python依赖、版本清单、构建脚本和说明。`.gitignore` 排除 `.runtime/`、`.venv/`、`node_modules/`、`build/`、`release/`、`data/`、`YingboData/`、测试输出、SQLite、日志、环境密钥文件、证书以及 `.vs/` 等 IDE 缓存。不要把 `.venv` 提交到 Git：虚拟环境带有绝对路径且不能跨平台搬运，另一台机器应由脚本按锁文件重建。
 
 服务密钥保存在用户数据目录的 SQLite 中；当前未使用系统密钥链加密，请勿上传数据库或整份用户数据。安装包应单独通过发行渠道提供，不加入源代码提交。
 

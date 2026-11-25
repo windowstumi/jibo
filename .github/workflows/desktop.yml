@@ -17,20 +17,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
+        if: runner.os != 'Windows'
         with:
-          python-version: '3.12'
+          python-version: '3.12.9'
       - uses: actions/setup-node@v4
+        if: runner.os != 'Windows'
         with:
-          node-version: '22'
+          node-version: '22.16.0'
           cache: npm
+      - name: Bootstrap and test project-local Windows environment
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\check.cmd
       - run: pip install -r requirements-build.txt
+        if: runner.os != 'Windows'
       - run: npm ci
+        if: runner.os != 'Windows'
       - run: python -m unittest discover -s tests -v
+        if: runner.os != 'Windows'
       - run: npm run test:desktop
+        if: runner.os != 'Windows'
       - run: python scripts/build_backend.py
+        if: runner.os != 'Windows'
       - run: npm run ${{ matrix.target }}
+        if: runner.os != 'Windows'
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Build and smoke-test Windows package
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          .\build.cmd
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\.runtime\node-v22.16.0-win-x64\node.exe scripts/smoke_desktop.cjs "release/win-unpacked/Yingbo Studio.exe"
+          exit $LASTEXITCODE
       - uses: actions/upload-artifact@v4
         with:
           name: yingbo-${{ matrix.os }}

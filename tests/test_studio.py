@@ -274,6 +274,14 @@ class StudioTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name=='nt','Windows TTS only')
     def test_real_chinese_windows_tts_and_cache(self):
+        # A clean English Windows runner need not have a Chinese SAPI voice.
+        # Exercise real synthesis only when its explicit system prerequisite exists.
+        import subprocess
+        probe=subprocess.run(['powershell.exe','-NoProfile','-Command',
+            'Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).GetInstalledVoices() | ForEach-Object {$_.VoiceInfo.Name}'],
+            capture_output=True,text=True,errors='replace',timeout=20)
+        if probe.returncode or studio.DEFAULTS['tts']['voice'] not in probe.stdout:
+            self.skipTest('Configured Chinese Windows SAPI voice is not installed')
         url=asyncio.run(studio.synthesize('欢迎光临。',studio.DEFAULTS))
         path=studio.DATA/'audio'/Path(url).name
         with wave.open(str(path)) as w:

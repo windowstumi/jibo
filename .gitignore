@@ -1,4 +1,6 @@
 .venv/
+.runtime/
+.venv-live2d/
 __pycache__/
 *.pyc
 data/
