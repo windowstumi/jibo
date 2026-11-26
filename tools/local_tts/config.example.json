@@ -1,0 +1,11 @@
+{
+  "upstream": "http://127.0.0.1:9880",
+  "voices": {
+    "my-voice": {
+      "ref_audio_path": "reference.wav",
+      "prompt_text": "这里填写参考录音中实际说出的完整文字。",
+      "prompt_lang": "zh",
+      "text_lang": "zh"
+    }
+  }
+}

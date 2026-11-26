@@ -36,6 +36,7 @@ from action_clips import (KINDS as ACTION_KINDS, MAX_CLIP_BYTES, MAX_PROJECT_BYT
 from character_pipeline import PIPELINE_DEFAULTS, PRESETS, REQUIRED_PRESETS, read_job
 from character_routes import register_characters, MAX_CHARACTER_BYTES
 from character_cards import validate_card,export_card,import_card,asset_filename
+from local_tts import LocalTTS, DEFAULT_LOCAL, MAX_VOICE_PACKAGE
 
 ROOT = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
 DATA = Path(os.environ.get("VTUBER_DATA_DIR", ROOT / "data")).resolve()
@@ -51,6 +52,7 @@ DEFAULTS = {
     "llm": {"base_url": "https://api.deepseek.com/v1", "model": "deepseek-chat", "key": ""},
     "image": {"base_url": "https://api.openai.com/v1", "model": "gpt-image-1", "key": "", "proxy_mode": "system", "proxy_url": ""},
     "tts": {"provider": "windows" if sys.platform == 'win32' else "compatible", "voice": "Microsoft Huihui Desktop" if sys.platform == 'win32' else "", "rate": 0, "base_url": "", "model": "", "key": ""},
+    "local_tts": dict(DEFAULT_LOCAL),
     "gift_template": "感谢{username}送来的{count}个{gift}，谢谢你的支持！",
     "event_token": secrets.token_urlsafe(24),
     **PIPELINE_DEFAULTS,
@@ -107,6 +109,7 @@ def get_value(key):
         value=json.loads(c.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()[0])
     if key=='settings':
         for section,defaults in PIPELINE_DEFAULTS.items():value[section]=defaults|value.get(section,{})
+        value['local_tts'] = DEFAULT_LOCAL | value.get('local_tts', {})
     return value
 
 
@@ -212,6 +215,7 @@ async def answer_question(question, evidence, settings):
 
 
 tts_lock = asyncio.Lock()
+local_tts = LocalTTS(DATA, lambda: get_value('settings'), lambda state: emit('local-tts', state))
 
 
 def windows_speech(text, output, cfg):
@@ -229,17 +233,23 @@ def windows_speech(text, output, cfg):
 
 async def synthesize(text, settings):
     cfg = settings["tts"]
-    cache_key = hashlib.sha256(json.dumps([text, cfg], ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:32]
+    cache_inputs = [text, {'provider': 'local'} if cfg['provider'] == 'local' else cfg]
+    if cfg['provider'] == 'local':
+        cache_inputs.append({key: settings['local_tts'][key] for key in ('voice_id', 'speed')})
+    cache_key = hashlib.sha256(json.dumps(cache_inputs, ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:32]
     output = DATA / "audio" / (cache_key + ".wav")
     async with tts_lock:
         if not output.exists():
             if cfg["provider"] == "windows":
                 await asyncio.to_thread(windows_speech, text, output, cfg)
+            elif cfg['provider'] == 'local':
+                output.write_bytes(await local_tts.synthesize(text, settings['local_tts']))
             else:
                 if not cfg["base_url"] or not cfg["model"]:
                     raise ValueError("请完整填写兼容 TTS 服务的地址与模型")
                 async with httpx.AsyncClient(timeout=90) as client:
-                    r = await client.post(cfg["base_url"].rstrip("/") + "/audio/speech", headers={"Authorization": "Bearer " + cfg["key"]}, json={"model": cfg["model"], "voice": cfg["voice"], "input": text, "response_format": "wav"})
+                    headers = {"Authorization": "Bearer " + cfg["key"]} if cfg["key"] else {}
+                    r = await client.post(cfg["base_url"].rstrip("/") + "/audio/speech", headers=headers, json={"model": cfg["model"], "voice": cfg["voice"], "input": text, "response_format": "wav"})
                     if r.status_code >= 400:
                         raise ValueError(f"语音服务请求失败（HTTP {r.status_code}）")
                     output.write_bytes(r.content)
@@ -350,6 +360,8 @@ async def lifespan(app):
     incoming = asyncio.Queue(maxsize=100)
     tts_lock = asyncio.Lock()
     init_db()
+    if get_value('settings')['tts']['provider'] == 'local' and get_value('settings')['local_tts']['auto_load']:
+        await local_tts.start()
     await character_startup()
     for directory in (DATA/'scenes').iterdir():
         if directory.is_dir() and (directory/'job.json').is_file():
@@ -360,6 +372,7 @@ async def lifespan(app):
     task = asyncio.create_task(event_worker())
     yield
     task.cancel()
+    await local_tts.close()
     await character_shutdown()
     for scene_task in scene_tasks:
         scene_task.cancel()
@@ -388,7 +401,7 @@ async def local_boundary(request: Request, call_next):
     if origin and urlparse(origin).netloc != request.headers.get("host"):
         return Response("Cross-origin requests are not allowed", status_code=403)
     length = request.headers.get("content-length")
-    limit = MAX_CHARACTER_BYTES+1_000_000 if request.url.path=='/api/characters/import' else MAX_PROJECT_BYTES if request.url.path == '/api/import' else 23_000_000 if request.url.path.endswith('/clip') or '/characters/references/' in request.url.path else 12_000_000
+    limit = MAX_VOICE_PACKAGE+1_000_000 if request.url.path == '/api/local-tts/voices/import' else MAX_CHARACTER_BYTES+1_000_000 if request.url.path=='/api/characters/import' else MAX_PROJECT_BYTES if request.url.path == '/api/import' else 23_000_000 if request.url.path.endswith('/clip') or '/characters/references/' in request.url.path else 12_000_000
     if length and (not length.isdigit() or int(length) > limit):
         return Response("Request body too large", status_code=413)
     if AUTH_TOKEN and request.url.path != '/api/events':
@@ -730,8 +743,22 @@ async def save_settings(request: Request):
                 cfg[section][key] = val
         if values.get("clear_key"):
             cfg[section]["key"] = ""
-    if cfg["tts"]["provider"] not in ("windows", "compatible"):
+    if cfg["tts"]["provider"] not in ("windows", "compatible", "local"):
         raise HTTPException(422, "不支持的语音服务")
+    local = body.get('local_tts', {})
+    if not isinstance(local, dict):
+        raise HTTPException(422, '本地语音配置格式错误')
+    for key in DEFAULT_LOCAL:
+        if key in local:
+            cfg['local_tts'][key] = local[key]
+    current = cfg['local_tts']
+    if (not isinstance(current['auto_load'], bool) or
+        current['package_index'] not in ('tuna', 'pypi') or
+        not isinstance(current['voice_id'], str) or
+        not re.fullmatch(r'cao|[a-f0-9]{32}', current['voice_id']) or
+        isinstance(current['speed'], bool) or not isinstance(current['speed'], (int, float)) or
+        not .5 <= current['speed'] <= 2):
+        raise HTTPException(422, '本地语音配置无效')
     image_cfg = cfg['image']
     if image_cfg.get('proxy_mode','system') not in ('system','direct','manual'):
         raise HTTPException(422, '不支持的图片代理模式')
@@ -756,8 +783,56 @@ async def save_settings(request: Request):
             raise HTTPException(422, "答谢模板仅支持 {username}、{count}、{gift}")
         cfg["gift_template"] = template
     put_value("settings", cfg)
+    if cfg['tts']['provider'] == 'local' and cfg['local_tts']['auto_load']:
+        if local_tts.loaded_voice != cfg['local_tts']['voice_id'] or local_tts.state['phase'] != 'ready':
+            await local_tts.start()
+    elif cfg['tts']['provider'] != 'local':
+        await local_tts.close()
     emit("settings", {"avatar": cfg["avatar"], "title": cfg["title"]})
     return {"ok": True}
+
+
+@app.get('/api/local-tts/status')
+async def local_tts_status():
+    return local_tts.snapshot()
+
+
+@app.post('/api/local-tts/install')
+async def install_local_tts():
+    cfg = get_value('settings')
+    cfg['tts']['provider'] = 'local'
+    cfg['local_tts']['auto_load'] = True
+    put_value('settings', cfg)
+    return await local_tts.start(install=True)
+
+
+@app.post('/api/local-tts/start')
+async def start_local_tts():
+    return await local_tts.start()
+
+
+@app.post('/api/local-tts/voices/import')
+async def import_local_voice(file: UploadFile = File(...)):
+    raw = await file.read(MAX_VOICE_PACKAGE + 1)
+    try:
+        return await asyncio.to_thread(local_tts.import_voice, raw)
+    except (ValueError, KeyError, zipfile.BadZipFile, wave.Error) as error:
+        raise HTTPException(422, str(error)) from None
+
+
+@app.post('/api/local-tts/test')
+async def test_local_voice(request: Request):
+    body = await request.json()
+    text = body.get('text', '') if isinstance(body, dict) else ''
+    if not isinstance(text, str) or not 1 <= len(text) <= 300:
+        raise HTTPException(422, '试听文字须为1至300字')
+    cfg = get_value('settings')
+    if cfg['tts']['provider'] != 'local':
+        raise HTTPException(409, '请先保存本地音色设置')
+    try:
+        return {'audio': await synthesize(text, cfg)}
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from None
 
 
 def save_image(raw):

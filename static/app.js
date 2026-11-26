@@ -157,7 +157,8 @@ function renderSettings() {
   $('event-url').value = location.origin + '/api/events';
   $('event-token').value = s.event_token;
   $('gift-template').value = s.gift_template;
-  $('tts-api-fields').hidden = s.tts.provider === 'windows';
+  $('tts-api-fields').hidden = s.tts.provider !== 'compatible';
+  if(typeof localSpeechVisibility==='function')localSpeechVisibility();
   $('image-proxy-mode').value = s.image.proxy_mode || 'system';
   $('image-proxy-url').value = s.image.proxy_url || '';
   $('image-proxy-fields').hidden = $('image-proxy-mode').value !== 'manual';
@@ -276,7 +277,7 @@ $('avatar-file').onchange = async e => {
   } catch(e) { toast(e.message, true); }
   finally { zone.style.pointerEvents = ''; $('avatar-file').value = ''; }
 };
-$('tts-provider').onchange = () => $('tts-api-fields').hidden = $('tts-provider').value === 'windows';
+$('tts-provider').onchange = () => $('tts-api-fields').hidden = $('tts-provider').value !== 'compatible';
 $('image-proxy-mode').onchange = () => $('image-proxy-fields').hidden = $('image-proxy-mode').value !== 'manual';
 function imageSettings() {
   return {base_url:$('image-url').value.trim(),model:$('image-model').value.trim(),key:$('image-key').value.trim(),clear_key:$('image-clear').checked,
@@ -300,6 +301,7 @@ $('settings-form').onsubmit = e => {
     const body = {};
     for (const section of ['llm','tts','image']) body[section] = {base_url:$(section+'-url').value.trim(), model:$(section+'-model').value.trim(), key:$(section+'-key').value.trim(), clear_key:$(section+'-clear').checked};
     Object.assign(body.tts, {provider:$('tts-provider').value, voice:$('tts-voice').value.trim(), rate:Number($('tts-rate').value)});
+    if(typeof localSpeechSettings==='function')body.local_tts=localSpeechSettings();
     body.image=imageSettings();
     await send('/api/settings', body, 'PUT'); await refresh(); renderSettings(); toast('接入设置已保存');
   });

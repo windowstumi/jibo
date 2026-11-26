@@ -21,6 +21,7 @@ proc.on('exit',()=>{
   const r=JSON.parse(fs.readFileSync(report,'utf8'));
   console.log(JSON.stringify(r,null,2));
   if(r.error || !r.main?.bridge || r.main.cards<5) process.exitCode=1;
+  if(!r.localTts?.option||!r.localTts.settingsVisible||!r.localTts.apiHidden||!r.localTts.progressVisible||!r.localTts.indeterminate||!r.localTts.voiceImport||!r.localTts.testDisabled)process.exitCode=1;
   if(!r.characters?.bridge || r.characters.rows!==7 || !r.characters.importer || !r.characters.rehearsal || r.characters.detachedMouth || !r.characters.title.includes('极播')) process.exitCode=1;
   if(!r.characters?.optionalFallback || !r.characters.retiredAbsent || !r.characters.optionalLabel)process.exitCode=1;
   if(!scene && !card && (!r.noSceneBlocked || !r.noLegacyRenderer)) process.exitCode=1;

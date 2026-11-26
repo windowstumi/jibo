@@ -1,0 +1,136 @@
+{
+  "schema": 1,
+  "component": "gpt-sovits-nvidia-v2-1",
+  "python": "3.11.9",
+  "upstream_commit": "6d51ffceafbf240145619af4c92408a6e54b7924",
+  "engine": {
+    "name": "GPT-SoVITS source",
+    "size": 6890791,
+    "sha256": "f1117d69f1c88f373bd4d1982bcdd92b12e780af9564104ffcf2ec1c3b921c1e",
+    "urls": [
+      "https://api.github.com/repos/RVC-Boss/GPT-SoVITS/zipball/6d51ffceafbf240145619af4c92408a6e54b7924"
+    ]
+  },
+  "uv": {
+    "version": "0.13.10",
+    "url": "https://github.com/astral-sh/uv/releases/download/0.13.10/uv-x86_64-pc-windows-msvc.zip",
+    "api_url": "https://api.github.com/repos/astral-sh/uv/releases/assets/788885003",
+    "size": 15641577,
+    "sha256": "297b3881fe1adfb922becc2c1613202abb41dc83ea5ff43d472aa087ca1f8683",
+    "urls": [
+      "https://api.github.com/repos/astral-sh/uv/releases/assets/788885003",
+      "https://github.com/astral-sh/uv/releases/download/0.13.10/uv-x86_64-pc-windows-msvc.zip"
+    ]
+  },
+  "models": [
+    {
+      "name": "chinese-hubert-base/config.json",
+      "path": "GPT_SoVITS/pretrained_models/chinese-hubert-base/config.json",
+      "size": 1449,
+      "sha256": "c3e5060a1277e0f078cc6be9da4528a605dba6ece93018981fe2c820e5c7b103",
+      "urls": [
+        "https://modelscope.cn/models/AI-ModelScope/GPT-SoVITS/resolve/master/chinese-hubert-base/config.json",
+        "https://hf-mirror.com/lj1995/GPT-SoVITS/resolve/8f8857563c040d542de108a2c18b0425abd6c9c5/chinese-hubert-base/config.json"
+      ]
+    },
+    {
+      "name": "chinese-hubert-base/preprocessor_config.json",
+      "path": "GPT_SoVITS/pretrained_models/chinese-hubert-base/preprocessor_config.json",
+      "size": 212,
+      "sha256": "dcd684124d06722947939d41ea6ae58dbf10968c60a11a29f23ddc602c64a29b",
+      "urls": [
+        "https://modelscope.cn/models/AI-ModelScope/GPT-SoVITS/resolve/master/chinese-hubert-base/preprocessor_config.json",
+        "https://hf-mirror.com/lj1995/GPT-SoVITS/resolve/8f8857563c040d542de108a2c18b0425abd6c9c5/chinese-hubert-base/preprocessor_config.json"
+      ]
+    },
+    {
+      "name": "chinese-hubert-base/pytorch_model.bin",
+      "path": "GPT_SoVITS/pretrained_models/chinese-hubert-base/pytorch_model.bin",
+      "size": 188811417,
+      "sha256": "24164f129c66499d1346e2aa55f183250c223161ec2770c0da3d3b08cf432d3c",
+      "urls": [
+        "https://modelscope.cn/models/AI-ModelScope/GPT-SoVITS/resolve/master/chinese-hubert-base/pytorch_model.bin",
+        "https://hf-mirror.com/lj1995/GPT-SoVITS/resolve/8f8857563c040d542de108a2c18b0425abd6c9c5/chinese-hubert-base/pytorch_model.bin"
+      ]
+    },
+    {
+      "name": "chinese-roberta-wwm-ext-large/config.json",
+      "path": "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large/config.json",
+      "size": 963,
+      "sha256": "3d57de2fd7e80d0e5c8ff194f0bbb6baa10df7e43fc262a0cc71298a78b0a3e5",
+      "urls": [
+        "https://modelscope.cn/models/AI-ModelScope/GPT-SoVITS/resolve/master/chinese-roberta-wwm-ext-large/config.json",
+        "https://hf-mirror.com/lj1995/GPT-SoVITS/resolve/8f8857563c040d542de108a2c18b0425abd6c9c5/chinese-roberta-wwm-ext-large/config.json"
+      ]
+    },
+    {
+      "name": "chinese-roberta-wwm-ext-large/pytorch_model.bin",
+      "path": "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large/pytorch_model.bin",
+      "size": 651225145,
+      "sha256": "e53a693acc59ace251d143d068096ae0d7b79e4b1b503fa84c9dcf576448c1d8",
+      "urls": [
+        "https://modelscope.cn/models/AI-ModelScope/GPT-SoVITS/resolve/master/chinese-roberta-wwm-ext-large/pytorch_model.bin",
+        "https://hf-mirror.com/lj1995/GPT-SoVITS/resolve/8f8857563c040d542de108a2c18b0425abd6c9c5/chinese-roberta-wwm-ext-large/pytorch_model.bin"
+      ]
+    },
+    {
+      "name": "chinese-roberta-wwm-ext-large/tokenizer.json",
+      "path": "GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large/tokenizer.json",
+      "size": 268962,
+      "sha256": "173796956820ea27bd14f76bf28162607ff4254807e2948253eb5b46f5bb643b",
+      "urls": [
+        "https://modelscope.cn/models/AI-ModelScope/GPT-SoVITS/resolve/master/chinese-roberta-wwm-ext-large/tokenizer.json",
+        "https://hf-mirror.com/lj1995/GPT-SoVITS/resolve/8f8857563c040d542de108a2c18b0425abd6c9c5/chinese-roberta-wwm-ext-large/tokenizer.json"
+      ]
+    },
+    {
+      "name": "NLTK taggers/averaged_perceptron_tagger.zip",
+      "path": "runtime/nltk_data/taggers/averaged_perceptron_tagger.zip",
+      "size": 2526731,
+      "sha256": "e1f13cf2532daadfd6f3bc481a49859f0b8ea6432ccdcd83e6a49a5f19008de9",
+      "extract": true,
+      "urls": [
+        "https://api.github.com/repos/nltk/nltk_data/contents/packages/taggers/averaged_perceptron_tagger.zip?ref=550b6625bcef1f2abff2ff770a5a0d272c9c6b2a",
+        "https://raw.githubusercontent.com/nltk/nltk_data/550b6625bcef1f2abff2ff770a5a0d272c9c6b2a/packages/taggers/averaged_perceptron_tagger.zip",
+        "https://cdn.jsdelivr.net/gh/nltk/nltk_data@550b6625bcef1f2abff2ff770a5a0d272c9c6b2a/packages/taggers/averaged_perceptron_tagger.zip"
+      ],
+      "headers": {
+        "Accept": "application/vnd.github.raw+json"
+      }
+    },
+    {
+      "name": "NLTK corpora/cmudict.zip",
+      "path": "runtime/nltk_data/corpora/cmudict.zip",
+      "size": 896069,
+      "sha256": "d07cca47fd72ad32ea9d8ad1219f85301eeaf4568f8b6b73747506a71fb5afd6",
+      "extract": true,
+      "urls": [
+        "https://api.github.com/repos/nltk/nltk_data/contents/packages/corpora/cmudict.zip?ref=550b6625bcef1f2abff2ff770a5a0d272c9c6b2a",
+        "https://raw.githubusercontent.com/nltk/nltk_data/550b6625bcef1f2abff2ff770a5a0d272c9c6b2a/packages/corpora/cmudict.zip",
+        "https://cdn.jsdelivr.net/gh/nltk/nltk_data@550b6625bcef1f2abff2ff770a5a0d272c9c6b2a/packages/corpora/cmudict.zip"
+      ],
+      "headers": {
+        "Accept": "application/vnd.github.raw+json"
+      }
+    }
+  ],
+  "g2pw": {
+    "name": "G2PW pronunciation model",
+    "size": 588857174,
+    "sha256": "b116f6930a7ee55eef6576a8d8e14bf40c1106583439e8ae924b901512379c64",
+    "urls": [
+      "https://modelscope.cn/models/kamiorinn/g2pw/resolve/master/G2PWModel_1.1.zip"
+    ]
+  },
+  "torch": {
+    "name": "torch-2.8.0+cu128-cp311-cp311-win_amd64.whl",
+    "size": 3461420395,
+    "sha256": "34c55443aafd31046a7963b63d30bc3b628ee4a704f826796c865fdfd05bb596",
+    "urls": [
+      "https://download.pytorch.org/whl/cu128/torch-2.8.0%2Bcu128-cp311-cp311-win_amd64.whl",
+      "https://mirrors.nju.edu.cn/pytorch/whl/cu128/torch-2.8.0%2Bcu128-cp311-cp311-win_amd64.whl",
+      "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128/torch-2.8.0%2Bcu128-cp311-cp311-win_amd64.whl"
+    ],
+    "locked_url": "https://download-r2.pytorch.org/whl/cu128/torch-2.8.0%2Bcu128-cp311-cp311-win_amd64.whl#sha256=34c55443aafd31046a7963b63d30bc3b628ee4a704f826796c865fdfd05bb596"
+  }
+}

@@ -1,6 +1,6 @@
 {
   "name": "jibo-studio",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "description": "极播：二维虚拟主播客户端",
   "author": "Jibo Studio",
   "private": true,
@@ -37,7 +37,9 @@
         "filter": [
           "**/*"
         ]
-      }
+      },
+      {"from": "build/local-tts", "to": "local-tts", "filter": ["**/*"]},
+      {"from": "licenses", "to": "licenses", "filter": ["**/*"]}
     ],
     "artifactName": "Jibo-Studio-${version}-${os}-${arch}.${ext}",
     "win": {

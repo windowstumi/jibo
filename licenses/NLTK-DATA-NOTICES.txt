@@ -1,0 +1,27 @@
+NLTK data source: https://github.com/nltk/nltk_data/tree/550b6625bcef1f2abff2ff770a5a0d272c9c6b2a
+
+id: averaged_perceptron_tagger
+name: Averaged Perceptron Tagger
+languages: English
+license: MIT License
+webpage: https://github.com/sloria/textblob-aptagger
+unzip: 1
+unzipped_size: 6138625
+size: 2526731
+checksum: 05c91d607ee1043181233365b3f76978
+sha256_checksum: e1f13cf2532daadfd6f3bc481a49859f0b8ea6432ccdcd83e6a49a5f19008de9
+subdir: taggers
+url: https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/taggers/averaged_perceptron_tagger.zip
+
+id: cmudict
+name: The Carnegie Mellon Pronouncing Dictionary (0.6)
+webpage: ftp://ftp.cs.cmu.edu/project/speech/dict/
+copyright: Copyright 1998 Carnegie Mellon University
+license: Use of this dictionary, for any research or commercial purpose, is completely unrestricted.  If you use or redistribute this material, we would appreciate acknowlegement of its origin.
+unzip: 1
+unzipped_size: 3824638
+size: 896069
+checksum: 58f743ff818b983b89ef9302b509fc41
+sha256_checksum: d07cca47fd72ad32ea9d8ad1219f85301eeaf4568f8b6b73747506a71fb5afd6
+subdir: corpora
+url: https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/corpora/cmudict.zip

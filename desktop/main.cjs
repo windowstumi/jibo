@@ -49,7 +49,7 @@ async function startBackend() {
   const {ELECTRON_RUN_AS_NODE, ...environment} = process.env;
   backend = spawn(command.command,[...command.args,'--port',process.env.YINGBO_PORT || '8765','--ready-file',readyFile], {
     cwd:app.isPackaged ? path.dirname(command.command) : root,
-    env:{...environment,VTUBER_DATA_DIR:dataRoot,VTUBER_AUTH_TOKEN:token,YINGBO_DESKTOP:'1',PYTHONUTF8:'1',PYTHONUNBUFFERED:'1'},
+    env:{...environment,VTUBER_DATA_DIR:dataRoot,VTUBER_AUTH_TOKEN:token,YINGBO_DESKTOP:'1',PYTHONUTF8:'1',PYTHONUNBUFFERED:'1',JIBO_RESOURCE_DIR:app.isPackaged?process.resourcesPath:path.join(root,'build')},
     windowsHide:true,stdio:['pipe','pipe','pipe']
   });
   let startupError;
@@ -183,6 +183,38 @@ async function smokeTest() {
   await new Promise(r=>setTimeout(r,800));
   const state = await (await api('/api/state')).json();
   const report = {packaged:app.isPackaged,platform:process.platform,main:await inspect(mainWindow),health:await(await api('/api/health')).json(),dataRoot};
+  if(process.env.JIBO_SMOKE_LOCAL_TTS_ACTIVE==='1'){
+    const check=require('./local-tts-check.cjs');
+    report.localTts=await mainWindow.webContents.executeJavaScript(`(${check.toString()})()`);
+    await new Promise(resolve=>setTimeout(resolve,250));
+    report.localTtsScreenshot=path.join(path.dirname(smokeFile),'local-tts-real-ready.png');
+    fs.writeFileSync(report.localTtsScreenshot,(await mainWindow.webContents.capturePage()).toPNG());
+    fs.writeFileSync(smokeFile,JSON.stringify(report,null,2));app.quit();return;
+  }
+  report.localTts=await mainWindow.webContents.executeJavaScript(`(async()=>{
+    navigate('settings');
+    clearInterval(localSpeechTimer);
+    const status=await api('/api/local-tts/status');
+    window.__smokePreviousTtsProvider=state.settings.tts.provider;
+    $('tts-provider').value='local';localSpeechVisibility();
+    state.settings.tts.provider='local';
+    renderLocalSpeech({...status,phase:'loading',message:'正在加载本地音色',progress:null,error:null});
+    const result={option:!!document.querySelector('#tts-provider option[value="local"]'),
+      settingsVisible:!$('local-tts-fields').hidden,apiHidden:$('tts-api-fields').hidden,
+      progressVisible:$('local-tts-startup').open,indeterminate:!$('local-tts-startup-progress').hasAttribute('value'),
+      voiceImport:!!$('local-tts-import'),testDisabled:$('local-tts-test').disabled};
+    return result;
+  })()`);
+  await new Promise(resolve=>setTimeout(resolve,250));
+  report.localTtsScreenshot=path.join(path.dirname(smokeFile),'local-tts-loading.png');
+  fs.writeFileSync(report.localTtsScreenshot,(await mainWindow.webContents.capturePage()).toPNG());
+  await mainWindow.webContents.executeJavaScript(`$('local-tts-startup').close();localSpeechDismissed=true;`);
+  await new Promise(resolve=>setTimeout(resolve,200));
+  await mainWindow.webContents.executeJavaScript(`$('local-tts-fields').scrollIntoView({block:'center'});`);
+  await new Promise(resolve=>setTimeout(resolve,150));
+  report.localTtsSettingsScreenshot=path.join(path.dirname(smokeFile),'local-tts-settings.png');
+  fs.writeFileSync(report.localTtsSettingsScreenshot,(await mainWindow.webContents.capturePage()).toPNG());
+  await mainWindow.webContents.executeJavaScript(`state.settings.tts.provider=window.__smokePreviousTtsProvider;$('tts-provider').value=window.__smokePreviousTtsProvider;localSpeechVisibility();`);
   report.characters=await mainWindow.webContents.executeJavaScript(`(async()=>{
     navigate('characters');const quote=await api('/api/characters/quote');
     return {title:document.title,bridge:typeof window.jiboDesktop==='object',rows:quote.rows.length,total:quote.total_cny,

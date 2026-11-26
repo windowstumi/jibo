@@ -12,9 +12,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--clean', action='store_true')
     args = parser.parse_args()
+    # The optional voice pack is a separate build input, never a Git model blob.
+    (ROOT / 'build/local-tts').mkdir(parents=True, exist_ok=True)
     command = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--noupx', '--onedir', '--console', '--name', 'jibo-backend',
                '--distpath', str(ROOT/'build'/'sidecar'), '--workpath', str(ROOT/'build'/'pyinstaller'), '--specpath', str(ROOT/'build'),
                '--add-data', f'{ROOT / "static"}:static', '--add-data', f'{ROOT / "tts_windows.ps1"}:.',
+               '--add-data', f'{ROOT / "tools/local_tts"}:local_tts',
+               '--add-data', f'{ROOT / "licenses"}:licenses',
                '--collect-all', 'uvicorn', '--collect-all', 'certifi', '--hidden-import', 'multipart']
     if args.clean:
         command.append('--clean')

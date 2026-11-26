@@ -231,6 +231,48 @@ class StudioTests(unittest.TestCase):
             self.assertEqual(len(studio.speech_jobs),0)
         asyncio.run(run())
 
+    def test_local_compatible_tts_allows_empty_key_and_preserves_cloud_auth(self):
+        import httpx
+        audio = io.BytesIO()
+        with wave.open(audio, 'wb') as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(16000)
+            wav.writeframes(b'\x00\x00' * 160)
+        for key in ('', 'test-cloud-key'):
+            with self.subTest(authenticated=bool(key)):
+                settings = {'tts': {'provider': 'compatible', 'base_url': 'http://127.0.0.1:9881/v1',
+                                    'model': 'gpt-sovits', 'voice': 'test', 'key': key}}
+                with patch('app.httpx.AsyncClient.post', AsyncMock(return_value=httpx.Response(200, content=audio.getvalue()))) as post:
+                    url = asyncio.run(studio.synthesize('本地无密钥回归 ' + key, settings))
+                    self.assertTrue((studio.DATA / url.removeprefix('/media/')).is_file())
+                    headers = post.call_args.kwargs['headers']
+                    self.assertEqual(headers, {'Authorization': 'Bearer ' + key} if key else {})
+                    self.assertEqual(post.call_args.args[0], 'http://127.0.0.1:9881/v1/audio/speech')
+
+    def test_local_voice_settings_persist_without_install_when_autoload_disabled(self):
+        with patch.object(studio.local_tts, 'start', AsyncMock()) as start:
+            result = self.client.put('/api/settings', json={'tts': {'provider': 'local'},
+                'local_tts': {'voice_id': 'cao', 'auto_load': False, 'speed': 1.1, 'package_index': 'tuna'}})
+            self.assertEqual(result.status_code, 200)
+            self.assertEqual(self.client.get('/api/state').json()['settings']['local_tts']['speed'], 1.1)
+            start.assert_not_called()
+        for invalid in [{'speed': True}, {'speed': 0}, {'voice_id': '../escape'}, {'package_index': 'http://example.com'}]:
+            self.assertEqual(self.client.put('/api/settings', json={'local_tts': invalid}).status_code, 422)
+
+    def test_local_voice_cache_is_separate_for_different_voice_ids(self):
+        audio = io.BytesIO()
+        with wave.open(audio, 'wb') as wav:
+            wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(16000)
+            wav.writeframes(b'\x00\x00' * 160)
+        settings = {'tts': {'provider': 'local'}, 'local_tts': dict(studio.DEFAULT_LOCAL)}
+        with patch.object(studio.local_tts, 'synthesize', AsyncMock(return_value=audio.getvalue())) as synth:
+            first = asyncio.run(studio.synthesize('音色缓存隔离。', settings))
+            settings['local_tts']['voice_id'] = 'a'*32
+            second = asyncio.run(studio.synthesize('音色缓存隔离。', settings))
+            self.assertNotEqual(first, second)
+            self.assertEqual(synth.call_count, 2)
+
     def test_compatible_model_and_image_contracts(self):
         cfg=studio.get_value('settings'); cfg['llm']['key']='test'; cfg['image']['key']='test'
         studio.put_value('settings',cfg)

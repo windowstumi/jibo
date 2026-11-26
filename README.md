@@ -1,6 +1,12 @@
 # 极播 · 虚拟人直播客户端
 
-使用 Electron + Python/FastAPI + SQLite 的本地桌面客户端。当前版本 **0.6.2**。
+使用 Electron + Python/FastAPI + SQLite 的本地桌面客户端。当前版本 **0.7.0**。
+
+## 0.7.0 项目内本地克隆语音
+
+接入设置 → 语音合成 →「本地克隆音色 · NVIDIA」可安装并启用本地语音。客户端自动下载独立Python、锁定的CUDA/PyTorch依赖和公共模型，打开客户端时显示加载与预热进度；不再要求客户单独运行GPT-SoVITS或填写端口。支持试听、语速、下载源、自动加载和独立音色包导入，退出客户端会关闭自己启动的语音进程。
+
+当前组件仅支持Windows x64与NVIDIA，采用GPT-SoVITS v2推理；GPU驱动由目标机器提供。默认音色由用户声明授权商业分发，代码与第三方说明随包保留。主包不包含GPU环境和公共大模型，首次启用需要数GB下载及至少15GB可用空间。使用方法、音色包格式、默认音色构建输入和测试边界见 [本地语音组件](docs/local-tts-component.md)。
 
 0.6.2删除旧版程序化点头的着色器位移、事件驱动与旧答谢入口，并禁止礼物回退到旧场景答谢短片。旧场景收到礼物只做语音答谢；视频角色卡只播放自身的答谢视频。
 
@@ -70,7 +76,7 @@ Windows 打包：
 .\build.cmd -Target directory
 ```
 
-输出为 `release/Jibo-Studio-0.6.2-win-x64.exe`。目录版位于 `release/win-unpacked/`，复制时必须保留整个目录。安装包内包含 Python 后台和 Electron，使用者不需安装开发环境。
+输出为 `release/Jibo-Studio-0.7.0-win-x64.exe`。目录版位于 `release/win-unpacked/`，复制时必须保留整个目录。安装包内包含 Python 后台和 Electron，使用者不需安装开发环境；可选本地语音的大型依赖在启用时下载。
 
 **Live2D 实验工具另行启用：** `setup.cmd -WithLive2D` 或 `live2d.cmd -Mode doctor`。它会把 PSD2Live 的便携版（含 Java）和拆层依赖放进本项目。用法见 [Live2D 工具说明](tools/avatar_pipeline/README.md)。生成图片仍需自己的图片 API 密钥；绑定需校准图层/关节配置，不能把实验脚本当作任意图片自动绑定服务。新版角色卡使用视频播放，旧场景保留原有2.5D渲染器。
 
@@ -105,7 +111,7 @@ Windows 打包：
 
 ## Windows 便携版
 
-程序：`release/Jibo-Studio-0.6.2-win-x64.exe`。
+程序：`release/Jibo-Studio-0.7.0-win-x64.exe`。
 
 - 将 EXE 放到可写文件夹，双击运行。同目录默认创建 `JiboData` 保存项目和配置；已有 `YingboData` 时沿用旧目录。
 - 关闭程序后，将 **EXE 与整个 JiboData（或已沿用的 YingboData）文件夹**复制到另一台 Windows 电脑即可迁移。
