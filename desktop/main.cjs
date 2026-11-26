@@ -5,11 +5,15 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const {spawn} = require('node:child_process');
 const {backendCommand, chooseDataRoot, isLocalUrl} = require('./platform.cjs');
+const {ObsClient}=require('./obs-client.cjs');
+const obs=new ObsClient();
 
 const root = path.resolve(__dirname, '..');
 let backend, mainWindow, stageWindow, origin, dataRoot, token, log, stopping = false, readyFile;
 const smokeFile = process.env.YINGBO_SMOKE_REPORT;
-app.setName('Yingbo Studio');
+const legacyProfile=path.join(app.getPath('appData'),'Yingbo Studio');
+app.setName('极播');
+if(fs.existsSync(legacyProfile))app.setPath('userData',legacyProfile);
 if(smokeFile) app.setPath('userData',path.join(path.dirname(smokeFile),'electron-profile'));
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
@@ -31,7 +35,7 @@ async function api(route, init = {}) {
 }
 
 async function startBackend() {
-  dataRoot = chooseDataRoot({userData:app.getPath('userData'),env:!app.isPackaged && !process.env.YINGBO_DATA_DIR ? {...process.env,YINGBO_DATA_DIR:path.join(root,'data')} : process.env});
+  dataRoot = chooseDataRoot({userData:app.getPath('userData'),env:!app.isPackaged && !process.env.YINGBO_DATA_DIR && !process.env.JIBO_DATA_DIR ? {...process.env,YINGBO_DATA_DIR:path.join(root,'data')} : process.env});
   fs.mkdirSync(dataRoot, {recursive:true});
   fs.mkdirSync(path.join(dataRoot,'logs'), {recursive:true});
   log = path.join(dataRoot, 'logs', 'desktop.log');
@@ -55,7 +59,7 @@ async function startBackend() {
   backend.on('exit', code => {
     logLine('Backend exited: ' + code);
     if (mainWindow && !stopping) {
-      dialog.showErrorBox('后台服务已停止', '请重启映播客户端。诊断日志保存在数据目录的 logs 文件夹。');
+      dialog.showErrorBox('后台服务已停止', '请重启极播客户端。诊断日志保存在数据目录的 logs 文件夹。');
       app.quit();
     }
   });
@@ -86,7 +90,7 @@ function secureWindow(win) {
 }
 
 async function exportProject() {
-  const result = await dialog.showSaveDialog(mainWindow,{title:'导出可迁移项目',defaultPath:'映播项目.yingbo.zip',filters:[{name:'映播项目',extensions:['zip']}]});
+  const result = await dialog.showSaveDialog(mainWindow,{title:'导出可迁移项目',defaultPath:'极播项目.zip',filters:[{name:'极播项目',extensions:['zip']}]});
   if (result.canceled) return {canceled:true};
   const response = await api('/api/export');
   fs.writeFileSync(result.filePath, Buffer.from(await response.arrayBuffer()));
@@ -94,12 +98,12 @@ async function exportProject() {
 }
 
 async function importProject() {
-  const result = await dialog.showOpenDialog(mainWindow,{title:'导入映播项目',properties:['openFile'],filters:[{name:'映播项目',extensions:['zip']}]});
+  const result = await dialog.showOpenDialog(mainWindow,{title:'导入极播项目',properties:['openFile'],filters:[{name:'极播项目',extensions:['zip']}]});
   if (result.canceled) return {canceled:true};
   const confirm = await dialog.showMessageBox(mainWindow,{type:'question',title:'导入项目',message:'导入后将替换当前商品、形象和屏蔽规则。',detail:'当前项目会自动备份。服务密钥保留在本机，不从项目包导入。',buttons:['取消','备份并导入'],defaultId:0,cancelId:0});
   if (confirm.response !== 1) return {canceled:true};
   const file = result.filePaths[0];
-  if (fs.statSync(file).size > 30_000_000) throw new Error('项目包不能超过30MB');
+  if (fs.statSync(file).size > 100_000_000) throw new Error('项目包不能超过100MB');
   const backup = await api('/api/export');
   const backups = path.join(dataRoot,'backups'); fs.mkdirSync(backups,{recursive:true});
   fs.writeFileSync(path.join(backups,'before-import-' + Date.now() + '.zip'),Buffer.from(await backup.arrayBuffer()));
@@ -112,7 +116,7 @@ async function importProject() {
 
 async function openStage() {
   if (stageWindow && !stageWindow.isDestroyed()) {stageWindow.show();stageWindow.focus();return {ok:true};}
-  stageWindow = new BrowserWindow({title:'映播 · 透明播出窗口',width:450,height:800,minWidth:270,minHeight:480,transparent:true,backgroundColor:'#00000000',frame:false,resizable:true,show:false,
+  stageWindow = new BrowserWindow({title:'极播 · 透明播出窗口',width:450,height:800,minWidth:270,minHeight:480,transparent:true,backgroundColor:'#00000000',frame:false,resizable:true,show:false,
     webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,backgroundThrottling:false}});
   secureWindow(stageWindow);
   stageWindow.on('ready-to-show',()=>stageWindow?.show());
@@ -123,7 +127,7 @@ async function openStage() {
 }
 
 async function createMainWindow() {
-  mainWindow = new BrowserWindow({title:'映播 · 虚拟人直播客户端',width:1360,height:920,minWidth:950,minHeight:680,backgroundColor:'#f6f7f9',show:false,
+  mainWindow = new BrowserWindow({title:'极播 · 虚拟人直播客户端',width:1360,height:920,minWidth:950,minHeight:680,backgroundColor:'#f6f7f9',show:false,
     webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,backgroundThrottling:false}});
   secureWindow(mainWindow);
   mainWindow.on('ready-to-show',()=>mainWindow?.show());
@@ -132,9 +136,9 @@ async function createMainWindow() {
 }
 
 function registerIpc() {
-  const handler = (channel, fn) => ipcMain.handle(channel, async event => {
+  const handler = (channel, fn) => ipcMain.handle(channel, async (event,...args) => {
     if (!mainWindow || event.sender !== mainWindow.webContents || !event.senderFrame || event.senderFrame !== mainWindow.webContents.mainFrame || !isLocalUrl(event.senderFrame.url,origin)) throw new Error('不允许的客户端操作');
-    try {return await fn();} catch(err) {logLine('Desktop action failed: '+err.message); throw new Error(err.message);}
+    try {return await fn(...args);} catch(err) {logLine('Desktop action failed: '+err.message); throw new Error(err.message);}
   });
   handler('desktop:info',()=>({version:app.getVersion(),platform:process.platform,dataDir:dataRoot,portable:!!process.env.PORTABLE_EXECUTABLE_DIR,packaged:app.isPackaged}));
   handler('desktop:stage',openStage);
@@ -142,17 +146,35 @@ function registerIpc() {
   handler('desktop:import',importProject);
   handler('desktop:data',async()=>{const error=await shell.openPath(dataRoot);if(error)throw new Error(error);return {ok:true};});
   handler('desktop:copy-stage',()=>{clipboard.writeText(stageUrl());return {ok:true};});
+  handler('desktop:obs-connect',async()=>{
+    const settings=await(await api('/api/obs/private-config')).json();
+    const result=await obs.connect(settings);return {version:result.obsVersion};
+  });
+  handler('desktop:obs-setup',async ident=>{
+    if(typeof ident!=='string'||!/^[a-f0-9]{32}$/.test(ident))throw Error('角色编号无效');
+    const character=await(await api('/api/characters/'+ident)).json();
+    return obs.setup(character,path.join(dataRoot,'characters',ident));
+  });
+  handler('desktop:obs-present',kind=>{
+    if(!['idle','talk','happy','thoughtful','thanks','greeting','present'].includes(kind))throw Error('动作无效');
+    return obs.present(kind);
+  });
+  handler('desktop:obs-speaking',value=>{
+    if(typeof value!=='boolean')throw Error('说话状态无效');
+    return obs.setSpeaking(value);
+  });
+  handler('desktop:obs-status',()=>({connected:obs.connected,error:obs.lastError||null}));
 }
 
 function setMenu() {
   const run = fn => () => Promise.resolve(fn()).catch(err=>dialog.showErrorBox('操作未完成',err.message));
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    ...(process.platform==='darwin'?[{role:'appMenu',label:'映播'}]:[]),
-    {label:'项目',submenu:[{label:'导出可迁移项目…',accelerator:'CmdOrCtrl+Shift+S',click:run(exportProject)},{label:'导入项目…',click:run(importProject)},{type:'separator'},{label:'打开数据目录',click:run(()=>shell.openPath(dataRoot))},{type:'separator'},{role:'quit',label:'退出映播'}]},
+    ...(process.platform==='darwin'?[{role:'appMenu',label:'极播'}]:[]),
+    {label:'项目',submenu:[{label:'导出可迁移项目…',accelerator:'CmdOrCtrl+Shift+S',click:run(exportProject)},{label:'导入项目…',click:run(importProject)},{type:'separator'},{label:'打开数据目录',click:run(()=>shell.openPath(dataRoot))},{type:'separator'},{role:'quit',label:'退出极播'}]},
     {label:'编辑',submenu:[{role:'undo',label:'撤销'},{role:'redo',label:'重做'},{type:'separator'},{role:'cut',label:'剪切'},{role:'copy',label:'复制'},{role:'paste',label:'粘贴'},{role:'selectAll',label:'全选'}]},
     {label:'播出',submenu:[{label:'打开透明播出窗口',click:run(openStage)},{label:'关闭透明播出窗口',click:()=>stageWindow?.close()},{label:'复制 OBS 浏览器源地址',click:()=>clipboard.writeText(stageUrl())}]},
     {label:'视图',submenu:[{role:'resetZoom',label:'实际大小'},{role:'zoomIn',label:'放大'},{role:'zoomOut',label:'缩小'},{role:'togglefullscreen',label:'全屏'},...(!app.isPackaged?[{role:'toggleDevTools',label:'开发工具'}]:[])]},
-    {label:'帮助',submenu:[{label:'关于映播',click:()=>dialog.showMessageBox(mainWindow,{type:'info',message:'映播 · 虚拟人直播客户端',detail:`版本 ${app.getVersion()}\n数据目录：${dataRoot}\n单图动画 · 商品知识库 · 语音互动`})}]}
+    {label:'帮助',submenu:[{label:'关于极播',click:()=>dialog.showMessageBox(mainWindow,{type:'info',message:'极播 · 虚拟人直播客户端',detail:`版本 ${app.getVersion()}\n数据目录：${dataRoot}\n单图动画 · 商品知识库 · 语音互动`})}]}
   ]));
 }
 
@@ -161,6 +183,31 @@ async function smokeTest() {
   await new Promise(r=>setTimeout(r,800));
   const state = await (await api('/api/state')).json();
   const report = {packaged:app.isPackaged,platform:process.platform,main:await inspect(mainWindow),health:await(await api('/api/health')).json(),dataRoot};
+  report.characters=await mainWindow.webContents.executeJavaScript(`(async()=>{
+    navigate('characters');const quote=await api('/api/characters/quote');
+    return {title:document.title,bridge:typeof window.jiboDesktop==='object',rows:quote.rows.length,total:quote.total_cny,
+      missing:quote.missing.length,importer:!!document.getElementById('import-character'),rehearsal:!!document.getElementById('start-character-rehearsal'),
+      optionalFallback:quote.fallbacks.happy==='talk',retiredAbsent:!document.querySelector('[data-ref-url="thoughtful"]'),
+      optionalLabel:document.querySelector('[data-ref-url="happy"]')?.closest('.reference-row').textContent.includes('选填'),
+      detachedMouth:!!document.querySelector('#mouth,.mouth-demo')};})()`);
+  await new Promise(resolve=>setTimeout(resolve,300));
+  report.characterScreenshot=path.join(path.dirname(smokeFile),'characters-ui.png');
+  fs.writeFileSync(report.characterScreenshot,(await mainWindow.webContents.capturePage()).toPNG());
+  await mainWindow.webContents.executeJavaScript(`navigate('studio')`);
+  if(process.env.JIBO_SMOKE_CARD){
+    const check=require('./card-check.cjs');report.characterCards=await mainWindow.webContents.executeJavaScript(`(${check.toString()})()`);
+    report.workbenchCardScreenshot=path.join(path.dirname(smokeFile),'workbench-video-card.png');
+    fs.writeFileSync(report.workbenchCardScreenshot,(await mainWindow.webContents.capturePage()).toPNG());
+    report.cardScreenshot=path.join(path.dirname(smokeFile),'character-cards-ui.png');
+    await mainWindow.webContents.executeJavaScript(`navigate('characters')`);await new Promise(r=>setTimeout(r,350));
+    fs.writeFileSync(report.cardScreenshot,(await mainWindow.webContents.capturePage()).toPNG());
+    await openStage();await new Promise(r=>setTimeout(r,2500));
+    report.nativeCardStage=await stageWindow.webContents.executeJavaScript(`({ready:document.getElementById('character-videos').dataset.ready==='true',kind:document.getElementById('character-videos').dataset.kind})`);
+    report.nativeCardStage.previewPaused=await mainWindow.webContents.executeJavaScript(`document.getElementById('studio-preview').contentDocument.getElementById('stage-audio').paused`);
+    report.runtime=(await(await api('/api/state')).json()).runtime;
+    await api('/api/studio/stop',{method:'POST'});stageWindow.close();
+    fs.writeFileSync(smokeFile,JSON.stringify(report,null,2));app.quit();return;
+  }
   if(process.env.YINGBO_SMOKE_SCENE){
     const job=state.scene_jobs.find(j=>j.status==='review'||j.status==='accepted');
     if(!job)throw Error('Smoke test scene was not loaded');
@@ -187,6 +234,16 @@ async function smokeTest() {
   const check=require('./scene-check.cjs');
   report.pixels=await stageWindow.webContents.executeJavaScript(`(${check.toString()})(${JSON.stringify(loaded.model)},${JSON.stringify(origin+loaded.base_url)})`);
   report.runtime = (await(await api('/api/state')).json()).runtime;
+  if(process.env.YINGBO_SMOKE_CLIP){
+    const checkActions=require('./action-check.cjs');
+    const clip=fs.readFileSync(process.env.YINGBO_SMOKE_CLIP).toString('base64');
+    report.clipInspection=await mainWindow.webContents.executeJavaScript(`(async()=>{const bytes=Uint8Array.from(atob(${JSON.stringify(clip)}),c=>c.charCodeAt(0));const info=await inspectActionFile(new File([bytes],'fixture.webm',{type:'video/webm'}));return {duration:info.duration,width:info.width,height:info.height,first:info.first.size,last:info.last.size};})()`);
+    report.actions=await stageWindow.webContents.executeJavaScript(`(${checkActions.toString()})(${JSON.stringify(clip)},${JSON.stringify(active)})`);
+    await mainWindow.webContents.executeJavaScript(`(async()=>{navigate('avatar');await loadScene(${JSON.stringify(active)});document.querySelector('.action-library').scrollIntoView({block:'center'});})()`);
+    await new Promise(resolve=>setTimeout(resolve,400));
+    report.actionScreenshot=path.join(path.dirname(smokeFile),'actions-ui.png');
+    fs.writeFileSync(report.actionScreenshot,(await mainWindow.webContents.capturePage()).toPNG());
+  }
   await api('/api/studio/stop',{method:'POST'});
   stageWindow.close();
   fs.writeFileSync(smokeFile,JSON.stringify(report,null,2));
@@ -196,6 +253,7 @@ async function smokeTest() {
 async function shutdown() {
   if (stopping) return;
   stopping=true;
+  await obs.close().catch(()=>{});
   if (stageWindow) stageWindow.destroy();
   if (backend && backend.exitCode===null) {
     try {if(origin) await api('/api/studio/stop',{method:'POST'});} catch {}
@@ -222,7 +280,7 @@ if (gotLock) app.whenReady().then(async()=>{
   } catch(err) {
     logLine(err.stack || err.message);
     if(smokeFile) fs.writeFileSync(smokeFile,JSON.stringify({error:err.message}));
-    else dialog.showErrorBox('映播启动失败',err.message);
+    else dialog.showErrorBox('极播启动失败',err.message);
     app.quit();
   }
 });

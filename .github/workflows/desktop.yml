@@ -49,11 +49,11 @@ jobs:
         run: |
           .\build.cmd
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & .\.runtime\node-v22.16.0-win-x64\node.exe scripts/smoke_desktop.cjs "release/win-unpacked/Yingbo Studio.exe"
+          & .\.runtime\node-v22.16.0-win-x64\node.exe scripts/smoke_desktop.cjs "release/win-unpacked/极播.exe"
           exit $LASTEXITCODE
       - uses: actions/upload-artifact@v4
         with:
-          name: yingbo-${{ matrix.os }}
+          name: jibo-${{ matrix.os }}
           path: |
             release/*.exe
             release/*.zip

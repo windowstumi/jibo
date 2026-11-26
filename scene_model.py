@@ -76,6 +76,15 @@ def remove_chroma(image):
     return Image.fromarray(pixels),{'matting':'connected-green-screen','background_removed':True,'removed_ratio':round(float(outside.mean()),3)}
 
 
+def video_input_image(character):
+    """Keep the cutout separate; APIs without alpha receive a temporary chroma plate."""
+    character=character.convert('RGBA');alpha=character.getchannel('A')
+    if sum(alpha.histogram()[:20])<character.width*character.height*.08 or not alpha.getbbox():
+        raise ValueError('视频输入必须先完成角色与背景分离，不能直接使用带背景原图')
+    canvas=Image.new('RGBA',character.size,(0,255,0,255));canvas.alpha_composite(character)
+    return canvas.convert('RGB')
+
+
 def derive_rig(image):
     alpha=np.asarray(image)[:,:,3]
     ys,xs=np.nonzero(alpha>80)

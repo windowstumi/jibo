@@ -12,7 +12,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--clean', action='store_true')
     args = parser.parse_args()
-    command = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--noupx', '--onedir', '--console', '--name', 'yingbo-backend',
+    command = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--noupx', '--onedir', '--console', '--name', 'jibo-backend',
                '--distpath', str(ROOT/'build'/'sidecar'), '--workpath', str(ROOT/'build'/'pyinstaller'), '--specpath', str(ROOT/'build'),
                '--add-data', f'{ROOT / "static"}:static', '--add-data', f'{ROOT / "tts_windows.ps1"}:.',
                '--collect-all', 'uvicorn', '--collect-all', 'certifi', '--hidden-import', 'multipart']
@@ -22,7 +22,7 @@ def main():
     subprocess.run(command, cwd=ROOT, env={**os.environ, 'PYINSTALLER_CONFIG_DIR':str(ROOT/'.runtime/cache/pyinstaller')}, check=True)
     # Keep PyInstaller's entire onedir layout. DLLs/resources are required.
     import shutil
-    source = ROOT/'build'/'sidecar'/'yingbo-backend'
+    source = ROOT/'build'/'sidecar'/'jibo-backend'
     destination = ROOT/'build'/'backend'
     # A rebuild must not retain DLLs from a different dependency lock.
     build_root = (ROOT/'build').resolve()

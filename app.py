@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -31,6 +31,11 @@ from image_service import (connection_error, download_result, endpoint, image_cl
                            image_payload, proxy_for, response_json)
 from scene_model import (STEPS as SCENE_STEPS, build_scene, compile_model, new_job,
                          public_job, write_json, ensure_cloth_model, write_cloth_mask, validate_cloth_polygon)
+from action_clips import (KINDS as ACTION_KINDS, MAX_CLIP_BYTES, MAX_PROJECT_BYTES,
+                          load_actions, save_action, validate_record, video_suffix)
+from character_pipeline import PIPELINE_DEFAULTS, PRESETS, REQUIRED_PRESETS, read_job
+from character_routes import register_characters, MAX_CHARACTER_BYTES
+from character_cards import validate_card,export_card,import_card,asset_filename
 
 ROOT = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
 DATA = Path(os.environ.get("VTUBER_DATA_DIR", ROOT / "data")).resolve()
@@ -48,6 +53,7 @@ DEFAULTS = {
     "tts": {"provider": "windows" if sys.platform == 'win32' else "compatible", "voice": "Microsoft Huihui Desktop" if sys.platform == 'win32' else "", "rate": 0, "base_url": "", "model": "", "key": ""},
     "gift_template": "感谢{username}送来的{count}个{gift}，谢谢你的支持！",
     "event_token": secrets.token_urlsafe(24),
+    **PIPELINE_DEFAULTS,
 }
 DEFAULT_RULES = [
     {"id": "r1", "pattern": "傻逼", "enabled": True, "category": "辱骂"},
@@ -62,10 +68,15 @@ DEFAULT_RULES = [
 SAMPLE_PRODUCT = {"id": "sample-cup", "name": "轻行保温杯（示例商品）", "price": "59 元", "description": "容量 480 毫升，杯身采用 304 不锈钢，旋盖设计，适合日常通勤。保温表现因环境和使用方式而异。", "faq": "问：多久发货？\n答：付款后 48 小时内发货，具体以订单页面为准。\n问：可以放洗碗机吗？\n答：不建议，建议用温水手洗。\n问：有哪些颜色？\n答：雾蓝色、奶白色。", "script": "欢迎来到直播间，今天介绍的是轻行保温杯。这是一个用于演示软件的示例商品。\n这款杯子的容量是480毫升，杯身采用304不锈钢，适合日常通勤。\n颜色有雾蓝色和奶白色。清洗时建议用温水手洗，不建议放入洗碗机。", "enabled": True}
 
 
+@contextlib.contextmanager
 def connect():
     c = sqlite3.connect(DB, timeout=10)
     c.row_factory = sqlite3.Row
-    return c
+    try:
+        with c:
+            yield c
+    finally:
+        c.close()
 
 
 def init_db():
@@ -88,12 +99,15 @@ def init_db():
 
 
 def clean_avatar(avatar):
-    return {key:value for key,value in avatar.items() if key in {'name','image','original','scene_id','mode'}}
+    return {key:value for key,value in avatar.items() if key in {'name','image','original','scene_id','character_id','mode'}}
 
 
 def get_value(key):
     with connect() as c:
-        return json.loads(c.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()[0])
+        value=json.loads(c.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()[0])
+    if key=='settings':
+        for section,defaults in PIPELINE_DEFAULTS.items():value[section]=defaults|value.get(section,{})
+    return value
 
 
 def put_value(key, value):
@@ -243,11 +257,11 @@ subscribers = set()
 scene_tasks = set()
 incoming = asyncio.Queue(maxsize=100)
 speech_jobs = deque()
-runtime = {"active": False, "product_id": "sample-cup", "current": None, "narration": [], "cursor": 0, "owner": None, "owner_role": None, "heartbeat": 0, "generation": 0}
+runtime = {"active": False, "product_id": "sample-cup", "current": None, "narration": [], "cursor": 0, "owner": None, "owner_role": None, "heartbeat": 0, "generation": 0, 'character_id':None,'playback':'browser'}
 
 
 def public_runtime():
-    return {k: runtime[k] for k in ("active", "product_id", "current", "owner_role")} | {"queue_length": len(speech_jobs)}
+    return {k: runtime[k] for k in ("active", "product_id", "current", "owner_role", 'character_id','playback')} | {"queue_length": len(speech_jobs)}
 
 
 def emit(kind, data):
@@ -336,6 +350,7 @@ async def lifespan(app):
     incoming = asyncio.Queue(maxsize=100)
     tts_lock = asyncio.Lock()
     init_db()
+    await character_startup()
     for directory in (DATA/'scenes').iterdir():
         if directory.is_dir() and (directory/'job.json').is_file():
             job=public_job(directory)
@@ -345,6 +360,7 @@ async def lifespan(app):
     task = asyncio.create_task(event_worker())
     yield
     task.cancel()
+    await character_shutdown()
     for scene_task in scene_tasks:
         scene_task.cancel()
     if scene_tasks:
@@ -353,11 +369,13 @@ async def lifespan(app):
         await task
 
 
-app = FastAPI(title="映播 · 虚拟人直播工作台", lifespan=lifespan)
+app = FastAPI(title="极播 · 虚拟人直播工作台", lifespan=lifespan)
+character_startup,character_shutdown=register_characters(app,DATA,lambda:get_value('settings'),lambda cfg:put_value('settings',cfg),emit,on_apply=lambda:stop_studio())
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 app.mount("/media/images", StaticFiles(directory=DATA / "images"), name="images")
 app.mount("/media/audio", StaticFiles(directory=DATA / "audio"), name="audio")
 app.mount('/media/scenes', StaticFiles(directory=DATA / 'scenes'), name='scenes')
+app.mount('/media/characters', StaticFiles(directory=DATA / 'characters'), name='characters')
 
 
 @app.middleware("http")
@@ -370,12 +388,13 @@ async def local_boundary(request: Request, call_next):
     if origin and urlparse(origin).netloc != request.headers.get("host"):
         return Response("Cross-origin requests are not allowed", status_code=403)
     length = request.headers.get("content-length")
-    if length and (not length.isdigit() or int(length) > (30_000_000 if request.url.path == '/api/import' else 12_000_000)):
+    limit = MAX_CHARACTER_BYTES+1_000_000 if request.url.path=='/api/characters/import' else MAX_PROJECT_BYTES if request.url.path == '/api/import' else 23_000_000 if request.url.path.endswith('/clip') or '/characters/references/' in request.url.path else 12_000_000
+    if length and (not length.isdigit() or int(length) > limit):
         return Response("Request body too large", status_code=413)
     if AUTH_TOKEN and request.url.path != '/api/events':
         supplied = request.headers.get('x-yingbo-token') or request.query_params.get('access_token', '') or request.cookies.get('yingbo_access', '')
         if not secrets.compare_digest(supplied, AUTH_TOKEN):
-            return Response('Please open this page from the Yingbo desktop client', status_code=401)
+            return Response('Please open this page from the Jibo desktop client', status_code=401)
     response = await call_next(request)
     if AUTH_TOKEN and request.query_params.get('access_token') == AUTH_TOKEN:
         response.set_cookie('yingbo_access', AUTH_TOKEN, httponly=True, samesite='strict')
@@ -396,9 +415,11 @@ async def stage():
 @app.get("/api/state")
 async def state():
     settings = get_value("settings")
-    for section in ("llm", "image", "tts"):
+    for section in ("llm", "image", "tts", "vision", "video"):
         settings[section]["has_key"] = bool(settings[section].pop("key", ""))
-    return {"settings": settings, "products": products(), "rules": get_value("rules"), "events": event_rows(), "runtime": public_runtime(), "platform": sys.platform, 'scene_jobs':scene_jobs()}
+    settings['obs']['has_password']=bool(settings['obs'].pop('password',''))
+    cards=[read_job(path.parent) for path in (DATA/'characters').glob('*/job.json')]
+    return {"settings": settings, "products": products(), "rules": get_value("rules"), "events": event_rows(), "runtime": public_runtime(), "platform": sys.platform, 'scene_jobs':scene_jobs(),'character_cards':cards}
 
 
 def scene_jobs():
@@ -447,8 +468,13 @@ async def start_scene(body:SceneBuild):
 
 
 @app.post('/api/scenes/test-voice')
-async def test_scene_voice():
-    text='你好，欢迎来到我的直播间。这是角色的语音同步测试。感谢你的支持，我们来看看今天的商品。'
+async def test_scene_voice(request:Request):
+    raw=await request.body()
+    try:body=json.loads(raw) if raw else {}
+    except ValueError:raise HTTPException(422,'测试台词格式无效')
+    text=body.get('text','你好，欢迎来到我的直播间。这是角色的语音同步测试。感谢你的支持，我们来看看今天的商品。') if isinstance(body,dict) else None
+    if not isinstance(text,str) or not 1<=len(text.strip())<=300:raise HTTPException(422,'测试台词需为1至300字')
+    if blocked(text,get_value('rules')):raise HTTPException(422,'测试台词命中屏蔽规则')
     try:
         return {'audio':await synthesize(text,get_value('settings')),'text':text}
     except ValueError as exc:
@@ -460,7 +486,75 @@ async def get_scene(scene_id:str):
     directory=scene_dir(scene_id);job=public_job(directory)
     if not job:raise HTTPException(404,'场景不存在')
     model=ensure_cloth_model(directory) if (directory/'model.json').is_file() else None
+    if model:
+        model['actions'] = load_actions(directory)
     return {'job':job,'model':model,'base_url':'/media/scenes/'+scene_id+'/'}
+
+
+@app.post('/api/scenes/{scene_id}/actions/{kind}/clip')
+async def upload_action(scene_id: str, kind: str, file: UploadFile = File(...),
+                        first: UploadFile = File(...), last: UploadFile = File(...), metadata: str = Form(...)):
+    directory = scene_dir(scene_id)
+    if not (directory/'model.json').is_file():
+        raise HTTPException(409, '请先准备角色场景')
+    try:
+        actions = save_action(directory, kind, await file.read(MAX_CLIP_BYTES + 1), json.loads(metadata),
+                              await first.read(1_000_001), await last.read(1_000_001))
+    except (ValueError, TypeError, KeyError, OSError) as exc:
+        raise HTTPException(422, str(exc))
+    return {'actions': actions}
+
+
+class ActionEnabled(BaseModel):
+    enabled: bool
+
+
+@app.put('/api/scenes/{scene_id}/actions/{kind}')
+async def enable_action(scene_id: str, kind: str, body: ActionEnabled):
+    directory = scene_dir(scene_id)
+    actions = load_actions(directory)
+    if kind not in actions:
+        raise HTTPException(404, '请先导入该动作')
+    if body.enabled and actions[kind].get('reference_sha256') != hashlib.sha256((directory/'neutral.png').read_bytes()).hexdigest():
+        raise HTTPException(409, '标准角色图已变化，请重新导入并检查动作首尾')
+    actions[kind] = validate_record(kind, actions[kind]) | {'enabled': body.enabled,
+                           'endpoint_checks': actions[kind].get('endpoint_checks', [])}
+    write_json(directory/'actions.json', actions)
+    settings = get_value('settings')
+    if settings['avatar'].get('scene_id') == scene_id:
+        emit('settings', {'avatar': settings['avatar'], 'title': settings['title']})
+    return {'actions': actions}
+
+
+class ManualAction(BaseModel):
+    kind: str
+
+
+@app.post('/api/studio/action')
+async def queue_action(body: ManualAction):
+    if not runtime['active']:
+        raise HTTPException(409, '请先开始彩排')
+    if body.kind not in ACTION_KINDS:
+        raise HTTPException(422, '未知动作类型')
+    if runtime.get('character_id'):
+        folder=DATA/'characters'/runtime['character_id']
+        card=read_job(folder)
+        asset=card.get('assets',{}).get(body.kind)
+        if not asset or not (folder/asset_filename(body.kind,asset)).is_file():
+            raise HTTPException(409, '当前直播角色卡缺少该动作视频')
+    else:
+        if body.kind=='thanks':
+            raise HTTPException(409, '旧版点头答谢已移除，请应用视频角色卡后使用答谢视频')
+        scene_id = get_value('settings')['avatar'].get('scene_id')
+        clip = load_actions(scene_dir(scene_id)).get(body.kind) if scene_id else None
+        if not clip or not clip.get('enabled'):
+            raise HTTPException(409, '当前使用旧场景，请启用旧动作，或到角色制作应用新角色卡')
+    if len(speech_jobs) >= 20:
+        raise HTTPException(409, '待播队列已满')
+    speech_jobs.append({'id':uuid.uuid4().hex, 'kind':'action', 'action':body.kind,
+                        'text':'', 'created':time.time()})
+    emit('runtime',public_runtime())
+    return {'ok':True}
 
 
 class ClothSettings(BaseModel):
@@ -800,6 +894,8 @@ async def ingest(event: Event, request: Request):
 class Start(BaseModel):
     product_id: str
     scene_id: str | None = None
+    character_id: str | None = None
+    playback:str=Field(default='browser',pattern=r'^(browser|desktop-obs)$')
 
 
 @app.post("/api/studio/start")
@@ -808,12 +904,21 @@ async def start_studio(start: Start):
     if not p:
         raise HTTPException(422, "请选择启用的商品")
     cfg, rules = get_value("settings"), get_value("rules")
+    character_id=start.character_id or (cfg['avatar'].get('character_id') if cfg['avatar'].get('mode')=='character' and not start.scene_id else None)
     scene_id=start.scene_id or cfg['avatar'].get('scene_id')
-    if not scene_id:
+    if character_id:
+        if not re.fullmatch('[a-f0-9]{32}',character_id):raise HTTPException(422,'角色编号无效')
+        folder=DATA/'characters'/character_id
+        if not (folder/'job.json').is_file():raise HTTPException(404,'角色不存在')
+        character=read_job(folder)
+        try:validate_card(folder,character,accepted=True)
+        except ValueError as exc:raise HTTPException(409,str(exc))
+    elif not scene_id:
         raise HTTPException(409,'请先选择已生成的场景模型；不再支持独立嘴部或静态图片开播')
-    directory=scene_dir(scene_id)
-    if not (directory/'model.json').is_file():raise HTTPException(409,'所选场景模型尚未生成完成')
-    ensure_cloth_model(directory)
+    else:
+        directory=scene_dir(scene_id)
+        if not (directory/'model.json').is_file():raise HTTPException(409,'所选场景模型尚未生成完成')
+        ensure_cloth_model(directory)
     text = p["script"].strip() or f"接下来介绍{p['name']}。{p['description']}"
     parts = [x.strip() for x in re.split(r"\n+|(?<=[。！？])", text) if x.strip()]
     if any(blocked(x, rules) for x in parts):
@@ -825,17 +930,21 @@ async def start_studio(start: Start):
         raise HTTPException(400, str(exc) if isinstance(exc, ValueError) else "生成讲解配音失败")
     if generation != runtime["generation"]:
         raise HTTPException(409, "本次准备已取消")
-    await activate_scene(scene_id)
+    if not character_id:await activate_scene(scene_id)
+    else:
+        cfg['avatar'].update(mode='character',character_id=character_id,name=character['name'],image=f'/media/characters/{character_id}/standard.png')
+        put_value('settings',cfg);emit('settings',{'avatar':cfg['avatar'],'title':cfg['title']})
     if runtime["current"] and runtime["current"].get("event_id"):
         update_event(runtime["current"]["event_id"], "skipped", "切换商品后取消当前互动")
-    runtime.update(active=True, product_id=p["id"], narration=narration, cursor=0, current=None)
+    runtime.update(active=True, product_id=p["id"], narration=narration, cursor=0, current=None,
+                   character_id=character_id,playback=start.playback,owner=None,owner_role=None,heartbeat=0)
     kept = []
     while speech_jobs:
         old = speech_jobs.popleft()
         if old.get("product_id") == p["id"]:
             kept.append(old)
         else:
-            update_event(old["event_id"], "skipped", "切换商品后清空旧互动")
+            if old.get('event_id'):update_event(old["event_id"], "skipped", "切换商品后清空旧互动")
     speech_jobs.extend(kept)
     emit("runtime", public_runtime())
     return {"ok": True, "segments": len(narration)}
@@ -848,19 +957,20 @@ async def stop_studio():
         update_event(runtime["current"]["event_id"], "skipped", "人工停止播出")
     while speech_jobs:
         job = speech_jobs.popleft()
-        update_event(job["event_id"], "skipped", "人工停止播出")
+        if job.get('event_id'):
+            update_event(job["event_id"], "skipped", "人工停止播出")
     while not incoming.empty():
         event = incoming.get_nowait()
         update_event(event.event_id, "skipped", "人工停止播出")
         incoming.task_done()
-    runtime.update(active=False, current=None)
+    runtime.update(active=False, current=None,character_id=None,owner=None,owner_role=None)
     emit("runtime", public_runtime())
     return {"ok": True}
 
 
 class Player(BaseModel):
     client_id: str = Field(min_length=1, max_length=80)
-    role: str = Field(default="preview", pattern=r"^(preview|obs)$")
+    role: str = Field(default="preview", pattern=r"^(preview|obs|desktop-obs)$")
     completed: str = Field(default="", max_length=80)
     failed: str = Field(default="", max_length=80)
 
@@ -868,6 +978,8 @@ class Player(BaseModel):
 @app.post("/api/player/tick")
 async def player_tick(p: Player):
     now = time.time()
+    if (runtime.get('playback')=='desktop-obs') != (p.role=='desktop-obs'):
+        return {'owner':False,'runtime':public_runtime()}
     if not runtime["owner"] or now-runtime["heartbeat"] > 8 or (p.role == "obs" and runtime["owner_role"] != "obs"):
         runtime.update(owner=p.client_id, owner_role=p.role, heartbeat=now)
         emit("runtime", public_runtime())
@@ -883,10 +995,12 @@ async def player_tick(p: Player):
         while speech_jobs:
             job = speech_jobs.popleft()
             if now-job["created"] > 120 or blocked(job["text"], get_value("rules")):
-                update_event(job["event_id"], "skipped", "互动过期或被规则屏蔽")
+                if job.get('event_id'):
+                    update_event(job["event_id"], "skipped", "互动过期或被规则屏蔽")
                 continue
             runtime["current"] = job
-            update_event(job["event_id"], "speaking", "正在播出", job["text"])
+            if job.get('event_id'):
+                update_event(job["event_id"], "speaking", "正在播出", job["text"])
             break
         if not runtime["current"] and runtime["narration"]:
             i = runtime["cursor"] % len(runtime["narration"])
@@ -894,6 +1008,13 @@ async def player_tick(p: Player):
             runtime["cursor"] += 1
             if not blocked(candidate["text"], get_value("rules")):
                 runtime["current"] = candidate | {"id": uuid.uuid4().hex}
+        current = runtime['current']
+        if current:
+            kind = current.get('action') if current['kind'] == 'action' else None
+            scene_id = get_value('settings')['avatar'].get('scene_id')
+            clip = load_actions(scene_dir(scene_id)).get(kind) if scene_id and kind and not runtime.get('character_id') else None
+            if clip and clip.get('enabled'):
+                current['clip'] = validate_record(kind, clip) | {'url':f'/media/scenes/{scene_id}/'+clip['file']}
         emit("runtime", public_runtime())
     return {"owner": True, "runtime": public_runtime()}
 
@@ -906,8 +1027,11 @@ async def export(request: Request):
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("project.json", json.dumps(bundle, ensure_ascii=False, indent=2))
         image_path = cfg["avatar"]["image"]
-        active_scene=cfg['avatar'].get('scene_id')
-        image = (scene_dir(active_scene)/'neutral.png') if active_scene else ROOT / "static" / "avatar.svg" if image_path.startswith("/static/") else DATA / "images" / Path(image_path).name
+        active_card=cfg['avatar'].get('character_id') if cfg['avatar'].get('mode')=='character' else None
+        active_scene=cfg['avatar'].get('scene_id') if not active_card else None
+        if active_card:
+            folder=DATA/'characters'/active_card;z.writestr('character.zip',export_card(folder,read_job(folder)));image=folder/'standard.png'
+        else:image = (scene_dir(active_scene)/'neutral.png') if active_scene else ROOT / "static" / "avatar.svg" if image_path.startswith("/static/") else DATA / "images" / Path(image_path).name
         z.write(image, "avatar" + image.suffix)
         original = cfg['avatar'].get('original')
         if original:
@@ -919,21 +1043,27 @@ async def export(request: Request):
             ensure_cloth_model(folder)
             for name in ('model.json','neutral.png','speaking.png','blink.png','background.jpg','head.png','body.png','skirt.png','cloth-mask.png'):
                 if (folder/name).is_file():z.write(folder/name,'scene/'+name)
-        z.writestr("README.txt", "在映播桌面客户端中选择“导入项目”迁移。本包包含素材、商品知识与规则，不包含API密钥、音色配置和音频缓存。\n包含scene/model.json时为可驱动2.5D场景，不是Live2D的moc3模型。")
-    return Response(buf.getvalue(), media_type="application/zip", headers={"Content-Disposition": 'attachment; filename="yingbo-project.zip"'})
+            actions = load_actions(folder)
+            if actions:
+                for kind, record in actions.items():
+                    record = validate_record(kind, record)
+                    z.write(folder/record['file'], 'scene/'+record['file'])
+                z.writestr('scene/actions.json', json.dumps(actions, ensure_ascii=False))
+        z.writestr("README.txt", "在极播桌面客户端中选择“导入项目”迁移。本包包含素材、商品知识与规则，不包含API密钥、音色配置和音频缓存。\n包含scene/model.json时为可驱动2.5D场景，不是Live2D的moc3模型。")
+    return Response(buf.getvalue(), media_type="application/zip", headers={"Content-Disposition": 'attachment; filename="jibo-project.zip"'})
 
 
 @app.post('/api/import')
 async def import_project(file: UploadFile = File(...)):
     if runtime['active']:
         raise HTTPException(409, '请先停止彩排再导入项目')
-    raw = await file.read(30_000_001)
-    if len(raw) > 30_000_000:
-        raise HTTPException(413, '项目包不能超过30MB')
+    raw = await file.read(MAX_PROJECT_BYTES + 1)
+    if len(raw) > MAX_PROJECT_BYTES:
+        raise HTTPException(413, '项目包不能超过100MB')
     try:
         with zipfile.ZipFile(io.BytesIO(raw)) as z:
             infos = z.infolist()
-            if len(infos)>20 or sum(i.file_size for i in infos)>40_000_000 or len({i.filename for i in infos})!=len(infos):
+            if len(infos)>24 or sum(i.file_size for i in infos)>MAX_PROJECT_BYTES or len({i.filename for i in infos})!=len(infos):
                 raise ValueError('项目包内容过大或包含重复文件')
             if 'project.json' not in z.namelist() or z.getinfo('project.json').file_size>2_000_000:
                 raise ValueError('缺少有效的项目配置')
@@ -967,7 +1097,9 @@ async def import_project(file: UploadFile = File(...)):
             else:
                 image_path = save_image(picture)
             reference = save_image(z.read('reference.png')) if 'reference.png' in z.namelist() else None
-            imported_scene=None
+            imported_scene=None;imported_card=None
+            if 'character.zip' in z.namelist():
+                imported_card=await asyncio.to_thread(import_card,z.read('character.zip'),DATA/'characters')
             if 'scene/model.json' in z.namelist():
                 model=json.loads(z.read('scene/model.json'))
                 if model.get('format')!='yingbo-scene' or model.get('version')!=1:
@@ -989,6 +1121,21 @@ async def import_project(file: UploadFile = File(...)):
                     clean_model['cloth']={'polygon':validate_cloth_polygon(model['cloth'].get('polygon'))}
                 write_json(folder/'model.json',clean_model)
                 ensure_cloth_model(folder)
+                if 'scene/actions.json' in z.namelist():
+                    actions = json.loads(z.read('scene/actions.json'))
+                    if not isinstance(actions, dict) or len(actions) > 3:
+                        raise ValueError('动作配置无效')
+                    clean_actions = {}
+                    for kind, record in actions.items():
+                        item = validate_record(kind, record)
+                        clip = z.read('scene/'+item['file'])
+                        if video_suffix(clip) != Path(item['file']).suffix:
+                            raise ValueError('动作文件格式不匹配')
+                        (folder/item['file']).write_bytes(clip)
+                        # A migrated model is reviewed again before going on air.
+                        clean_actions[kind] = item | {'enabled':False,
+                            'reference_sha256':hashlib.sha256((folder/'neutral.png').read_bytes()).hexdigest()}
+                    write_json(folder/'actions.json', clean_actions)
                 write_json(folder/'job.json',{'id':ident,'status':'review','current':'done','created':time.time(),'steps':{s:{'status':'done'} for s in SCENE_STEPS},'error':None})
                 imported_scene=ident
         cfg = get_value('settings')
@@ -997,6 +1144,9 @@ async def import_project(file: UploadFile = File(...)):
         cfg['avatar'] = {'name':avatar_name,'image':image_path, 'mode':'imported'}
         if imported_scene:
             cfg['avatar'].update(scene_id=imported_scene,mode='scene',image='/media/scenes/'+imported_scene+'/neutral.png')
+        if imported_card:
+            cfg['avatar'].update(character_id=imported_card['id'],mode='character',name=imported_card['name'],image='/media/characters/'+imported_card['id']+'/standard.png')
+            emit('character_job',imported_card)
         if reference:
             cfg['avatar']['original'] = reference
         elif image_path.startswith('/media/'):

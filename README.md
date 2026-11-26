@@ -1,6 +1,48 @@
-# 映播 · 虚拟人直播客户端
+# 极播 · 虚拟人直播客户端
 
-使用 Electron + Python/FastAPI + SQLite 的本地桌面客户端。当前版本 **0.3.1**。
+使用 Electron + Python/FastAPI + SQLite 的本地桌面客户端。当前版本 **0.6.2**。
+
+0.6.2删除旧版程序化点头的着色器位移、事件驱动与旧答谢入口，并禁止礼物回退到旧场景答谢短片。旧场景收到礼物只做语音答谢；视频角色卡只播放自身的答谢视频。
+
+0.6.1修复工作台仍使用旧动作的入口混淆：明确显示当前是视频角色卡还是旧场景，直接列出本卡的自然待机、平静说话、点头答谢、微笑招手、介绍手势；开播前可点视频预览，彩排期间手势按队列播出。待验收卡也可从工作台选中，再进入预览应用；应用后自动回到工作台。角色卡动作不再读取遗留旧场景目录。
+
+## 0.6.0 角色卡、制作预览与工作台同步
+
+「角色制作」新增角色卡列表和集成预览，可检查待机、说话、答谢、介绍、招手，输入文字试听真实TTS，切换独立背景。复用已有语音队列和Chromium原生视频播放，不叠加独立嘴贴图。确认并应用角色后，直播工作台同步选中新角色；切换会停止原角色播出，再开始彩排。
+
+已有本角色成品绿幕视频时，点击「使用现有视频创建角色卡」进行本地去绿、透明WebM整理，不调用收费生成接口。云端重新制作保留在折叠的高级入口。角色卡可改名、切换、独立ZIP导入导出；导入后需要在本机预览确认。项目迁移包也会携带当前应用的角色卡，密钥不进入包。
+
+已用当前目标角色的五段真实视频、Windows实际语音，在开发版与打包版执行界面回归。原素材中的动作、嘴部活动及循环接缝仍需人工验收；250ms淡化过渡不能修复原视频姿态差异。说明和迁移步骤见 **[极播0.6使用说明](docs/jibo-0.6-guide.md)**。下方0.5及更早章节为历史记录，新版行为以0.6说明为准。
+
+## 0.5.1 基础动作＋可选情绪
+
+角色制作移除「思考说话」，重新制作并配置「介绍手势」「微笑招手」。基础参考为待机、平静说话、答谢、招手、介绍五项；情绪说话选填，未配置时不生成、不计费。缺少情绪成片时，OBS使用平静说话。只有五项基础素材的角色也可以验收、导入导出和开始彩排；旧角色包可导入，思考素材不再进入新角色。
+
+新两段参考使用已有透明正面人物图，5秒/480P各一段，新增估算¥1.00。已导出透明WebM并制作真实Windows语音预览，尚未完成OBS现场和无缝切换验收。当前机器的便携数据目录已配置这两段参考，已有待机/说话/答谢保留；这些用户素材和密钥不随EXE分发，迁移需复制数据目录。
+
+按基础五段各3秒估算，标准制作约¥7.05，专业约¥10.05；实际按参考时长、所选情绪和服务商账单计算。当前本机五段各5秒时，标准角色制作报价约¥11.05（含GPT/标准图示例预算），与本轮直接制作两段参考的¥1.00属于不同步骤。
+
+## 0.5.0 极播：GPT分析＋云端动作库＋OBS互动彩排
+
+新增「角色制作」：GPT视觉分析 → 标准角色图 → 万相七类完整动作/表情视频 → 费用记录 → 人工验收 → OBS原生媒体源播放。新角色彩排沿用已有商品、内容过滤、礼物优先与TTS队列，不叠加旧网格或独立嘴贴图。旧版场景保留在独立入口。
+
+七段各3秒时，标准模式单次约 **¥9.45**，专业模式约 **¥13.65**；其中GPT ¥0.05、图片 ¥1 是可调整预算，实际按服务商结算。超时不自动付费重试。需首次配置GPT/图片/万相服务、已授权参考表演、OBS和FFmpeg/ffprobe；当前没有内置已验收参考库，当前包未附带OBS或FFmpeg。
+
+运行、首次配置、成本公式、迁移、许可与真实素材验收步骤见 **[极播0.5使用说明](docs/jibo-0.5-guide.md)**。本轮没有调用收费生成接口，真实目标角色与OBS整链路效果仍待验收；透明人物视频、独立背景和自动情绪分类尚未在新路径实现。
+
+## 0.4.0 实时说话＋预制动作短片
+
+待机和说话仍保留原来的呼吸、头部轻晃、眨眼、衣料风动与动态背景。招手、介绍、答谢可使用本地短片，在语句之间静音播放；不会把口型叠加到动作视频上。礼物答谢先播放已启用的答谢动作，再开始语音；没有合格短片时直接语音答谢。
+
+1. 形象工坊载入一个场景，在「预制动作短片」下载标准参考图、复制视频生成提示词。
+2. 使用外部图生视频工具制作动作：固定镜头，首尾与参考图的姿态、比例、位置一致，各保持约0.5秒，闭嘴完成一个动作再回位。这里没有自动调用视频生成服务，也不产生新的视频服务费用。
+3. 导入1–8秒、20MB以内的绿幕MP4/WebM或透明WebM，宽高比与参考图一致。尺寸不超过2048边长及250万像素。建议24/30 FPS、720p以内起步；更低配置应先实测解码负载。
+4. 导入检查首尾轮廓和颜色差异。点击「预览完整切换」，完整播放成功后，再人工确认并启用。淡入淡出无法修复视频内部的变脸、肢体错误或明显的首尾姿态差异。
+5. 工作台招手/介绍/答谢按钮会排队到当前语句后播放。收到合规礼物会自动选用答谢短片；内容过滤、礼物优先和单播放器声音归属继续生效。
+
+过渡顺序：400ms逐步收回实时形变 → 400ms淡入短片首帧 → 播放短片 → 400ms从末帧淡回角色 → 400ms恢复实时形变 → 开始下一句。实时动画时钟不重置，独立背景持续运动。短片预加载/解码失败或超时会跳过，停止播出和OBS接管会取消旧播放序列，防止过时语音突然播放。
+
+动作与场景随迁移项目一起导出，项目包上限提高到100MB。导入另一项目后动作需要重新预览启用；标准角色图发生变化时，旧动作自动停用。动作播放器使用Chromium/WebGL，不增加PyTorch或本地视频生成模型依赖。未配备实际动作视频时，可使用 `YINGBO_SMOKE_CLIP` 指定与场景匹配的测试短片执行桌面回归；测试夹具仅验证解码、过渡和队列，不代表AI动作质量。
 
 ## 快速开始：全新克隆
 
@@ -28,9 +70,9 @@ Windows 打包：
 .\build.cmd -Target directory
 ```
 
-输出为 `release/Yingbo-Studio-0.3.1-win-x64.exe`。目录版位于 `release/win-unpacked/`，复制时必须保留整个目录。安装包内包含 Python 后台和 Electron，使用者不需安装开发环境。
+输出为 `release/Jibo-Studio-0.6.2-win-x64.exe`。目录版位于 `release/win-unpacked/`，复制时必须保留整个目录。安装包内包含 Python 后台和 Electron，使用者不需安装开发环境。
 
-**Live2D 实验工具另行启用：** `setup.cmd -WithLive2D` 或 `live2d.cmd -Mode doctor`。它会把 PSD2Live 的便携版（含 Java）和拆层依赖放进本项目。用法见 [Live2D 工具说明](tools/avatar_pipeline/README.md)。生成图片仍需自己的图片 API 密钥；绑定需校准图层/关节配置，不能把实验脚本当作任意图片自动绑定服务。正式客户端目前仍使用原有 2.5D 渲染器。
+**Live2D 实验工具另行启用：** `setup.cmd -WithLive2D` 或 `live2d.cmd -Mode doctor`。它会把 PSD2Live 的便携版（含 Java）和拆层依赖放进本项目。用法见 [Live2D 工具说明](tools/avatar_pipeline/README.md)。生成图片仍需自己的图片 API 密钥；绑定需校准图层/关节配置，不能把实验脚本当作任意图片自动绑定服务。新版角色卡使用视频播放，旧场景保留原有2.5D渲染器。
 
 固定版本、校验下载、换路径重建、离线范围、支持平台和验证方式见 [环境与打包说明](docs/PORTABLE.md)。macOS/Linux 仍采用后文的手动安装方式，并须在目标系统构建；本次一键环境入口仅支持 Windows x64。
 
@@ -63,10 +105,10 @@ Windows 打包：
 
 ## Windows 便携版
 
-程序：`release/Yingbo-Studio-0.3.1-win-x64.exe`。
+程序：`release/Jibo-Studio-0.6.2-win-x64.exe`。
 
-- 将 EXE 放到可写文件夹，双击运行。同目录创建 `YingboData` 保存项目和配置。
-- 关闭程序后，将 **EXE 与整个 YingboData 文件夹**复制到另一台 Windows 电脑即可迁移。
+- 将 EXE 放到可写文件夹，双击运行。同目录默认创建 `JiboData` 保存项目和配置；已有 `YingboData` 时沿用旧目录。
+- 关闭程序后，将 **EXE 与整个 JiboData（或已沿用的 YingboData）文件夹**复制到另一台 Windows 电脑即可迁移。
 - 不要从只读盘或不可写的系统目录运行。退出主窗口会停止播出并结束后台。
 - `release/win-unpacked/` 是目录版，必须整目录复制，不能只复制其中的 EXE。
 - 当前是未签名开发构建；正式分发需要 Windows 代码签名、macOS 签名及公证。
@@ -106,15 +148,15 @@ npm run dist:mac    # macOS ZIP / .app
 
 不要把 Windows 的 `build/backend/` 拿到 macOS/Linux 打包。Python、Pillow 等包含平台相关二进制，必须在对应 OS/CPU 上重建。`requirements-build.lock.txt` 是 Windows x64 的带哈希构建锁；macOS/Linux 使用 `requirements-build.txt` 在目标平台解析构建工具。`.github/workflows/desktop.yml` 提供可手动触发的三个系统构建流程，Windows 走同一套一键脚本。macOS Intel/Apple Silicon 需分别构建，其他平台结果不等于本机实测。
 
-如果宿主设置了 `ELECTRON_RUN_AS_NODE`，启动 Electron 前需清除；`start.ps1` 已处理。可通过 `YINGBO_PYTHON` 指定开发时的 Python，通过 `YINGBO_DATA_DIR` 指定数据目录，通过 `YINGBO_PORT` 指定首选端口。
+如果宿主设置了 `ELECTRON_RUN_AS_NODE`，启动 Electron 前需清除；`start.ps1` 已处理。可通过 `YINGBO_PYTHON` 指定开发时的 Python，通过 `JIBO_DATA_DIR` 指定数据目录（兼容 `YINGBO_DATA_DIR`），通过 `YINGBO_PORT` 指定首选端口。
 
 ## 跨平台设计
 
 | 项目 | 处理方式 |
 |---|---|
-| 界面、音频、字幕和嘴型 | 内置 Chromium，同一音频驱动嘴部 |
+| 界面、音频、字幕和嘴型 | 内置Chromium；角色卡按语音状态切换整段视频，嘴部活动来自视频；旧场景由音频驱动 |
 | Python 后台 | PyInstaller 按目标平台打包，用户不用配置环境 |
-| 数据 | 与程序资源分离；普通安装用用户目录，便携版用 EXE 旁的 YingboData |
+| 数据 | 与程序资源分离；普通安装用用户目录，便携版用 EXE 旁的 JiboData（兼容YingboData） |
 | 启动和关闭 | 自动启动后台、健康检查；关闭客户端结束后台；端口冲突时自动分配 |
 | Windows 语音 | 使用目标机器已安装的中文 SAPI 音色，缺少时明确报错 |
 | macOS/Linux 语音 | 默认使用兼容 `/audio/speech` 的本地或云端服务 |
@@ -168,21 +210,21 @@ OBS 启用“通过 OBS 控制音频”。播出窗口和 OBS 比工作台预览
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 npm run test:desktop
 npm run smoke:desktop
-node scripts/smoke_desktop.cjs "release/win-unpacked/Yingbo Studio.exe"
+node scripts/smoke_desktop.cjs "release/win-unpacked/极播.exe"
 ```
 
-Python 检查覆盖过滤、知识库、迁移、鉴权、真实 Windows 配音和队列。Node 检查覆盖平台路径和数据目录。无场景的桌面检查验证启动和禁止静态图开播；已有场景时，用以下命令进一步测试实际配音、播出、迁移和衣料像素隔离（替换最后一个路径）：
+Python 检查覆盖过滤、知识库、迁移、鉴权、真实 Windows 配音和队列。Node 检查覆盖平台路径、数据目录、OBS协议及语音/动作取消。新增角色测试覆盖报价、密钥隐藏、导入导出、预算停止和超时不重复提交。无场景的桌面检查验证启动和禁止静态图开播；已有场景时，用以下命令进一步测试实际配音、播出、迁移和衣料像素隔离（替换最后一个路径）：
 
 ```powershell
 node scripts/smoke_desktop.cjs --dev "D:\YourData\scenes\<scene-id>"
-node scripts/smoke_desktop.cjs "release\Yingbo-Studio-0.3.1-win-x64.exe" "D:\YourData\scenes\<scene-id>"
+node scripts/smoke_desktop.cjs "release\Jibo-Studio-0.5.1-win-x64.exe" "D:\YourData\scenes\<scene-id>"
 ```
 
 测试结束自动退出，数据保存在临时目录，不修改正式项目，也不发起付费图片生成。
 
 ## Git 提交范围
 
-保留源码、测试、内置示例资源、npm锁文件、Python依赖、版本清单、构建脚本和说明。`.gitignore` 排除 `.runtime/`、`.venv/`、`node_modules/`、`build/`、`release/`、`data/`、`YingboData/`、测试输出、SQLite、日志、环境密钥文件、证书以及 `.vs/` 等 IDE 缓存。不要把 `.venv` 提交到 Git：虚拟环境带有绝对路径且不能跨平台搬运，另一台机器应由脚本按锁文件重建。
+保留源码、测试、内置示例资源、npm锁文件、Python依赖、版本清单、构建脚本和说明。`.gitignore` 排除 `.runtime/`、`.venv/`、`node_modules/`、`build/`、`release/`、`data/`、`YingboData/`、`JiboData/`、测试输出、SQLite、日志、环境密钥文件、证书以及 `.vs/` 等 IDE 缓存。不要把 `.venv` 提交到 Git：虚拟环境带有绝对路径且不能跨平台搬运，另一台机器应由脚本按锁文件重建。
 
 服务密钥保存在用户数据目录的 SQLite 中；当前未使用系统密钥链加密，请勿上传数据库或整份用户数据。安装包应单独通过发行渠道提供，不加入源代码提交。
 
@@ -196,6 +238,8 @@ node scripts/smoke_desktop.cjs "release\Yingbo-Studio-0.3.1-win-x64.exe" "D:\You
 - `backend_entry.py`：内置后台入口、端口选择、父进程关闭处理。
 - `app.py`：商品、规则、语音、事件、迁移与本地鉴权。
 - `static/`：客户端内置界面和播出渲染。
+- `character_pipeline.py`、`character_routes.py`：GPT/万相任务、费用与角色包。
+- `desktop/obs-client.cjs`、`static/obs-rehearsal.js`：复用OBS播放与现有语音队列。
 - `scripts/build_backend.py`：后台打包。
 - `scripts/smoke_desktop.cjs`：桌面集成检查。
 - `build.ps1`、`start.ps1`：Windows 构建和开发启动。

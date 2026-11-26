@@ -7,7 +7,7 @@
   uniform vec2 uScale;
   uniform vec4 uHead;
   uniform vec4 uBody;
-  uniform vec4 uMotion;
+  uniform vec3 uMotion;
   uniform highp float uTime;
   void main(){
     vec2 p=aPosition;vUV=p;
@@ -23,8 +23,6 @@
     p.x+=sin(uTime*1.5+aPosition.y*10.0)*uMotion.y*.010*hairSides*hairHeight;
     p.x+=(aPosition.x-hx)*uMotion.z*.012*bodyWeight;
     p.y-=uMotion.z*.004*bodyWeight;
-    p.x+=uMotion.w*.025*bodyWeight;
-    p.y+=abs(uMotion.w)*.012*bodyWeight;
     gl_Position=vec4((p.x-.5)*2.0*uScale.x,(.5-p.y)*2.0*uScale.y,0,1);
   }`;
   const fragment=`
@@ -34,6 +32,8 @@
   uniform sampler2D uSpeaking;
   uniform sampler2D uBlink;
   uniform sampler2D uCloth;
+  uniform sampler2D uAction;
+  uniform vec2 uClip;
   uniform float uWind;
   uniform highp float uTime;
   uniform vec4 uFace;
@@ -57,7 +57,15 @@
     float mouthMask=1.0-smoothstep(.55,1.0,length(mouthD));
     float eyeMask=1.0-smoothstep(.65,1.0,length(eyeD));
     vec3 c=base.rgb+(talk.rgb-base.rgb)*mouthMask*uExpression.x*step(.7,talk.a)+(shut.rgb-base.rgb)*eyeMask*uExpression.y*step(.7,shut.a);
-    gl_FragColor=vec4(clamp(c,0.0,1.0),base.a);
+    vec4 action=texture2D(uAction,vUV);
+    if(uClip.y>0.5){
+      float excess=action.g-max(action.r,action.b);
+      action.a*=1.0-smoothstep(.08,.30,excess);
+      action.g=mix(action.g,min(action.g,max(action.r,action.b)),1.0-action.a);
+    }
+    float alpha=mix(base.a,action.a,uClip.x);
+    vec3 rgb=mix(clamp(c,0.0,1.0)*base.a,action.rgb*action.a,uClip.x)/max(alpha,.0001);
+    gl_FragColor=vec4(rgb,alpha);
   }`;
 
   function shader(gl,type,source){
@@ -77,7 +85,11 @@
       gl.attachShader(this.program,shader(gl,gl.VERTEX_SHADER,vertex));
       gl.attachShader(this.program,shader(gl,gl.FRAGMENT_SHADER,fragment));gl.linkProgram(this.program);
       if(!gl.getProgramParameter(this.program,gl.LINK_STATUS))throw Error('场景着色器无法初始化：'+gl.getProgramInfoLog(this.program));
-      this.uniforms={};for(const name of ['uScale','uHead','uBody','uMotion','uTime','uFace','uExpression','uNeutral','uSpeaking','uBlink','uCloth','uWind'])this.uniforms[name]=gl.getUniformLocation(this.program,name);
+      this.uniforms={};for(const name of ['uScale','uHead','uBody','uMotion','uTime','uFace','uExpression','uNeutral','uSpeaking','uBlink','uCloth','uWind','uAction','uClip'])this.uniforms[name]=gl.getUniformLocation(this.program,name);
+      this.actionTexture=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,this.actionTexture);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(4));
       this.bgCanvas=document.createElement('canvas');this.bgCanvas.className='scene-background';
       canvas.parentNode.insertBefore(this.bgCanvas,canvas);this.bg=this.bgCanvas.getContext('2d');
       this.textures=[];this.ready=false;this.open=0;this.wind=0;this.windVelocity=0;this.start=performance.now();this.last=this.start;this.frames=0;this.fps=0;this.fpsTime=this.start;
@@ -107,7 +119,7 @@
       if(this.buffer)gl.deleteBuffer(this.buffer);this.buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,this.buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(vertices),gl.STATIC_DRAW);this.count=vertices.length/2;
       this.ready=true;
     }
-    draw(now,openness=0,gesture='idle'){
+    draw(now,openness=0,action=null){
       if(!this.ready)return;
       const gl=this.gl,r=this.rig,dt=Math.min(.05,(now-this.last)/1000||.016);this.last=now;
       const time=(now-this.start)/1000;
@@ -117,9 +129,9 @@
       this.windVelocity+=(target-this.wind)*dt*7;this.windVelocity*=Math.exp(-dt*3);this.wind+=this.windVelocity*dt*6;
       this.open+=(Math.min(1,openness)-this.open)*(1-Math.exp(-dt*(openness>this.open?22:13)));
       const blinkPhase=time%4.7;
-      const blink=blinkPhase>4.42?Math.max(0,Math.sin((blinkPhase-4.42)/.28*Math.PI)):0;
-      const bow=gesture==='gift' || gesture==='thanks'? Math.max(0,Math.sin(time*2.7))*.7 : 0;
-      const headAngle=(Math.sin(time*.71)*.018+Math.sin(time*1.9)*this.open*.008)*r.motion+bow*.07;
+      const live=action?.motion??1;
+      const blink=(blinkPhase>4.42?Math.max(0,Math.sin((blinkPhase-4.42)/.28*Math.PI)):0)*live;
+      const headAngle=(Math.sin(time*.71)*.018+Math.sin(time*1.9)*this.open*.008)*r.motion*live;
       const modelAspect=this.model.width/this.model.height,viewAspect=w/h;
       const sy=.94,sx=sy*modelAspect/viewAspect;
       this.drawBackground(time,w,h);
@@ -129,15 +141,18 @@
       gl.uniform2f(this.uniforms.uScale,sx,sy);
       gl.uniform4f(this.uniforms.uHead,r.head_x,r.head_y,r.neck_y,r.face_width);
       gl.uniform4f(this.uniforms.uBody,r.waist_y,r.skirt_y,r.skirt_end||.7,0);
-      gl.uniform4f(this.uniforms.uMotion,headAngle,this.wind,Math.sin(time*1.6)*r.breath,bow);
+      gl.uniform3f(this.uniforms.uMotion,headAngle,this.wind*live,Math.sin(time*1.6)*r.breath*live);
       gl.uniform4f(this.uniforms.uFace,r.head_x,r.eye_y,r.mouth_y,r.face_width);
-      gl.uniform2f(this.uniforms.uExpression,this.open,blink);gl.uniform1f(this.uniforms.uTime,time);
-      gl.uniform1f(this.uniforms.uWind,this.wind);
+      gl.uniform2f(this.uniforms.uExpression,this.open*live,blink);gl.uniform1f(this.uniforms.uTime,time);
+      gl.uniform1f(this.uniforms.uWind,this.wind*live);
       for(let i=0;i<4;i++){gl.activeTexture(gl.TEXTURE0+i);gl.bindTexture(gl.TEXTURE_2D,this.textures[i]);gl.uniform1i(this.uniforms[['uNeutral','uSpeaking','uBlink','uCloth'][i]],i);}
+      gl.activeTexture(gl.TEXTURE4);gl.bindTexture(gl.TEXTURE_2D,this.actionTexture);
+      if(action?.mix>0&&action.video.readyState>=2)gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,action.video);
+      gl.uniform1i(this.uniforms.uAction,4);gl.uniform2f(this.uniforms.uClip,action?.mix||0,action?.background==='green'?1:0);
       // One continuous mesh: write straight RGBA once; source-alpha blending here would square edge alpha.
       gl.disable(gl.BLEND);gl.drawArrays(gl.TRIANGLES,0,this.count);
       if(now-this.fpsTime>=1000){this.fps=Math.round(this.frames*1000/(now-this.fpsTime));this.frames=0;this.fpsTime=now;}this.frames++;
-      this.diagnostics={fps:this.fps,openness:this.open,wind:this.wind,triangles:this.count/3,gesture};
+      this.diagnostics={fps:this.fps,openness:this.open,wind:this.wind,triangles:this.count/3};
     }
     drawBackground(time,w,h){
       const ctx=this.bg,r=this.rig;ctx.clearRect(0,0,w,h);
@@ -154,7 +169,7 @@
       }
       ctx.globalAlpha=1;
     }
-    destroy(){for(const tex of this.textures)this.gl.deleteTexture(tex);if(this.buffer)this.gl.deleteBuffer(this.buffer);this.gl.deleteProgram(this.program);this.bgCanvas.remove();this.canvas.removeEventListener('webglcontextlost',this.onContextLost);}
+    destroy(){for(const tex of this.textures)this.gl.deleteTexture(tex);this.gl.deleteTexture(this.actionTexture);if(this.buffer)this.gl.deleteBuffer(this.buffer);this.gl.deleteProgram(this.program);this.bgCanvas.remove();this.canvas.removeEventListener('webglcontextlost',this.onContextLost);}
   }
   global.SceneRenderer=SceneRenderer;
 })(window);

@@ -46,9 +46,11 @@ data/                        本机数据，不提交
 
 安装包无需运行时下载 Python/Node；但图片生成和云端语音仍依赖你配置的 API。未包含模型权重、第三方平台账号、GPU/CUDA、参考图片或个人生成数据。客户端本身不要求 NVIDIA GPU；独立重型 AI 服务不在此打包范围。
 
+0.6角色卡：已有角色的播放由内置Chromium完成；本地整理绿幕成片需要FFmpeg与ffprobe，导入角色ZIP需要ffprobe校验，发布包尚未附带这些工具。迁移卡片后重新预览确认，TTS按目标系统重新配置。详见[角色卡说明](jibo-0.6-guide.md)。
+
 ## 换机验证
 
-应在未包含 `.runtime/.venv/node_modules/build/release/data` 的新目录运行一键脚本，验证单元测试、Electron 实际启动，再构建并启动 `release/win-unpacked/Yingbo Studio.exe`。打包冒烟测试使用临时数据目录，不读取个人 API 密钥，不付费生图。
+应在未包含 `.runtime/.venv/node_modules/build/release/data` 的新目录运行一键脚本，验证单元测试、Electron 实际启动，再构建并启动 `release/win-unpacked/极播.exe`。打包冒烟测试使用临时数据目录，不读取个人 API 密钥，不付费生图。
 
 macOS/Linux 不是 Windows EXE 的运行目标，须在对应系统用 README 的手工流程编译。当前一键环境和可选 Live2D 编译入口仅承诺 Windows x64；其他架构需另行提供匹配的运行时与原生依赖。
 

@@ -44,7 +44,7 @@ def main():
         moved=destination/'.runtime/moved package 中文'
         shutil.copytree(destination/'release/win-unpacked',moved)
         node=destination/'.runtime'/json.loads((destination/'runtime.versions.json').read_text())['node']['directory']/'node.exe'
-        subprocess.run([str(node),str(destination/'scripts/smoke_desktop.cjs'),str(moved/'Yingbo Studio.exe')],cwd=destination,env=env,check=True)
+        subprocess.run([str(node),str(destination/'scripts/smoke_desktop.cjs'),str(moved/'极播.exe')],cwd=destination,env=env,check=True)
     report={'source':str(destination),'global_python_node_removed_from_path':True,'fresh_virtual_environment':True,
             'reused_download_cache':not args.cold_cache,'source_checks_passed':True,'package_relocation_passed':args.build}
     (ROOT/'.runtime/verification/latest.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')

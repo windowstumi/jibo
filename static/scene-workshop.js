@@ -19,6 +19,7 @@ async function loadScene(id){
   const data=await api('/api/scenes/'+id);selectedScene=id;renderSceneProgress(data.job);
   if(!data.model){$('scene-quality').textContent='生成尚未完成。已提交任务不会自动重试。';return;}
   sceneModel=data.model;
+  renderActionStatus();
   loadClothEditor(data.model,data.base_url);
   $('scene-preview').src='/stage?mode=inspect&scene_id='+encodeURIComponent(id);
   const warnings=data.model.quality.warnings||[];
@@ -48,8 +49,7 @@ $('scene-voice-test').onclick=()=>busy($('scene-voice-test'),'生成配音…',a
   if(!sceneModel)throw Error('请先载入场景');
   const result=await send('/api/scenes/test-voice',{});sceneMessage({type:'scene-audio',url:result.audio,text:result.text});
 });
-const sceneStream=new EventSource('/api/stream');
-sceneStream.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='scene_job'){const jobs=[m.data,...lastSceneJobs.filter(j=>j.id!==m.data.id)].sort((a,b)=>b.created-a.created);renderSceneJobs(jobs);if(m.data.status==='review'&&m.data.id===selectedScene)loadScene(selectedScene).catch(err=>toast(err.message,true));}};
+window.addEventListener('studio-event',e=>{const m=e.detail;if(m.type==='scene_job'){const jobs=[m.data,...lastSceneJobs.filter(j=>j.id!==m.data.id)].sort((a,b)=>b.created-a.created);renderSceneJobs(jobs);if(m.data.status==='review'&&m.data.id===selectedScene)loadScene(selectedScene).catch(err=>toast(err.message,true));}});
 api('/api/state').then(data=>{renderSceneJobs(data.scene_jobs||[]);const active=data.settings.avatar.scene_id||(data.scene_jobs||[]).find(j=>j.status==='review'||j.status==='accepted')?.id;if(active){selectedScene=active;$('scene-select').value=active;loadScene(active).catch(err=>toast(err.message,true));}}).catch(()=>{});
 
 let clothPoints=[],dragPoint=-1;
@@ -81,4 +81,78 @@ $('save-cloth').onclick=()=>busy($('save-cloth'),'保存中…',async()=>{
   if(!selectedScene||!sceneModel)throw Error('请先载入场景');
   await send('/api/scenes/'+selectedScene+'/cloth',{polygon:clothPoints},'PUT');
   await loadScene(selectedScene);toast('已更新衣料范围；范围外的腿和手不再参与布料变形');
+});
+
+const actionNames={thanks:'答谢',greeting:'招手',present:'介绍'};
+let reviewedAction='';
+function renderActionStatus(){
+  const kind=$('action-kind').value,clip=sceneModel?.actions?.[kind];
+  $('action-status').textContent=clip?`${actionNames[kind]} · ${clip.duration.toFixed(1)}秒 · ${clip.enabled?'已启用':'待预览确认'} · 首尾各400毫秒平滑切换`:'该场景尚未导入此动作。';
+  $('preview-action').disabled=!clip;
+  $('enable-action').disabled=!clip||reviewedAction!==clip.file||clip.enabled;
+  $('disable-action').disabled=!clip?.enabled;
+}
+$('action-kind').onchange=renderActionStatus;
+$('download-action-reference').onclick=()=>{
+  if(!sceneModel)return toast('请先载入场景',true);
+  const a=document.createElement('a');a.href='/media/scenes/'+sceneModel.id+'/neutral.png';a.download='action-reference.png';a.click();
+};
+$('copy-action-prompt').onclick=()=>{
+  const action={greeting:'人物自然抬手小幅招手，再放下手回到原位',present:'人物自然抬起一只手做介绍手势，再放下手回到原位'}[$('action-kind').value];
+  navigator.clipboard.writeText(`以参考图作为准确首帧和末帧。${action}。时长4秒，固定镜头，人物位置、比例、脸部身份、服装和画布不变。开头和结尾各保持参考图闭嘴姿势0.5秒。全程不说话、不张嘴，不添加物体、文字、字幕或音效，保持纯RGB(0,255,0)绿幕，人物边缘清晰。动作柔和自然，无突然跳变。`).then(()=>toast('已复制视频生成提示词'),()=>toast('复制失败，请检查剪贴板权限',true));
+};
+
+async function inspectActionFile(file){
+  if(file.size>20_000_000)throw Error('短片不能超过20MB');
+  const video=document.createElement('video'),url=URL.createObjectURL(file);
+  video.muted=true;video.preload='auto';
+  const wait=event=>new Promise((resolve,reject)=>{
+    const clean=()=>{clearTimeout(timer);video.removeEventListener(event,ok);video.removeEventListener('error',bad);};
+    const ok=()=>{clean();resolve();},bad=()=>{clean();reject(Error('无法解码短片，请使用H.264 MP4或VP8/VP9 WebM'));};
+    const timer=setTimeout(()=>{clean();reject(Error('短片读取超时'));},8000);
+    video.addEventListener(event,ok,{once:true});video.addEventListener('error',bad,{once:true});
+  });
+  try{
+    const loaded=wait('loadeddata');video.src=url;await loaded;
+    const {duration,videoWidth:width,videoHeight:height}=video;
+    if(!Number.isFinite(duration)||duration<1||duration>8)throw Error('短片必须为1至8秒');
+    if(width<64||height<64||width>2048||height>2048||width*height>2_500_000)throw Error('请使用不超过2048边长、250万像素的视频');
+    const canvas=document.createElement('canvas'),scale=Math.min(1,512/Math.max(width,height));
+    canvas.width=Math.round(width*scale);canvas.height=Math.round(height*scale);
+    const context=canvas.getContext('2d');
+    const frame=async t=>{
+      const done=wait('seeked');video.currentTime=t;await done;
+      context.clearRect(0,0,canvas.width,canvas.height);context.drawImage(video,0,0,canvas.width,canvas.height);
+      return new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+    };
+    return {duration,width,height,first:await frame(.02),last:await frame(Math.max(.03,duration-.08))};
+  }finally{video.removeAttribute('src');video.load();URL.revokeObjectURL(url);}
+}
+$('action-file').onchange=async()=>{
+  const file=$('action-file').files[0];if(!file)return;
+  const scene=selectedScene,kind=$('action-kind').value,background=$('action-background').value;
+  try{
+    if(!sceneModel||sceneModel.id!==scene)throw Error('请先载入场景');
+    $('action-status').textContent='正在读取视频、检查首尾姿态…';
+    const info=await inspectActionFile(file),form=new FormData();
+    form.append('file',file);form.append('first',info.first,'first.png');form.append('last',info.last,'last.png');
+    form.append('metadata',JSON.stringify({duration:info.duration,width:info.width,height:info.height,background}));
+    await api('/api/scenes/'+scene+'/actions/'+kind+'/clip',{method:'POST',body:form});
+    reviewedAction='';await loadScene(scene);toast('动作已导入，请预览完整切换后再启用');
+  }catch(error){renderActionStatus();toast(error.message,true);}finally{$('action-file').value='';}
+};
+$('preview-action').onclick=()=>{
+  const kind=$('action-kind').value,clip=sceneModel?.actions?.[kind];if(!clip)return;
+  sceneMessage({type:'preview-clip',kind});reviewedAction='';renderActionStatus();
+  $('action-status').textContent='正在预览：回到标准姿态 → 动作 → 回到实时角色。请检查是否跳变。';
+};
+window.addEventListener('message',event=>{
+  const m=event.data;
+  if(event.origin!==location.origin||event.source!==$('scene-preview').contentWindow||m?.type!=='action-preview-done'||m.scene_id!==sceneModel?.id)return;
+  if(m.ok){reviewedAction=m.file;renderActionStatus();toast('预览已结束，确认切换自然后可启用');}
+  else {reviewedAction='';renderActionStatus();toast('动作预览未完成，请检查短片格式',true);}
+});
+for(const [id,enabled] of [['enable-action',true],['disable-action',false]])$(id).onclick=()=>busy($(id),'保存中…',async()=>{
+  const result=await send('/api/scenes/'+sceneModel.id+'/actions/'+$('action-kind').value,{enabled},'PUT');
+  sceneModel.actions=result.actions;renderActionStatus();toast(enabled?'动作已启用':'动作已停用');
 });

@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const desktop = window.yingboDesktop;
+const desktop = window.jiboDesktop || window.yingboDesktop;
 let state, eventKind = 'comment', rules = [], editingId = null;
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const statuses = {pending:'等待处理',processing:'处理中',ready:'等待播出',speaking:'正在播出',done:'已播出',skipped:'已跳过',error:'处理失败'};
@@ -67,8 +67,9 @@ function renderEvents(events) {
 function renderRuntime(runtime) {
   state.runtime = runtime;
   $('studio-status').textContent = runtime.active ? '彩排进行中' : '准备就绪';
-  $('studio-detail').textContent = runtime.current ? (runtime.current.kind === 'gift' ? '正在答谢礼物' : runtime.current.kind === 'comment' ? '正在回答商品问题' : '正在讲解商品') : runtime.active ? '等待音频播放器连接' : '先选择商品，开始本地彩排';
+  $('studio-detail').textContent = runtime.current ? (runtime.current.kind === 'action' ? '正在播放'+({thanks:'点头答谢',greeting:'微笑招手',present:'介绍手势'}[runtime.current.action]||'动作') : runtime.current.kind === 'gift' ? '正在答谢礼物' : runtime.current.kind === 'comment' ? '正在回答商品问题' : '正在讲解商品') : runtime.active ? '等待音频播放器连接' : '先选择商品，开始本地彩排';
   $('queue-badge').textContent = runtime.queue_length + ' 条待播';
+  renderStudioActions();
 }
 function renderRules() {
   $('rule-count').textContent = rules.filter(r => r.enabled).length + ' 条生效';
@@ -82,13 +83,64 @@ function renderAvatar() {
   $('avatar-image').src = a.original || a.image;
 }
 function renderStudioScenes() {
-  const current=state.settings.avatar.scene_id;
-  const selected=$('active-scene').value || current;
+  const a=state.settings.avatar;
+  const current=a.mode==='character'?'character:'+a.character_id:a.scene_id;
+  const selected=$('active-scene').dataset.active!==String(current)?current:$('active-scene').value||current;
+  $('active-scene').dataset.active=String(current);
   const scenes=(state.scene_jobs||[]).filter(j=>['review','accepted'].includes(j.status));
-  $('active-scene').innerHTML=scenes.length?scenes.map(j=>`<option value="${esc(j.id)}">${new Date(j.created*1000).toLocaleString('zh-CN')} · ${j.id===current?'当前模型':'可用场景'}</option>`).join(''):'<option value="">请先到形象工坊生成场景模型</option>';
-  if(scenes.some(j=>j.id===selected))$('active-scene').value=selected;
-  $('active-scene-hint').textContent=scenes.length?'开始彩排将使用所选场景的完整面部表情。':'未生成场景时不能开播，不使用静态图片嘴型替代。';
+  const cards=(state.character_cards||[]).filter(j=>['review','accepted'].includes(j.status));
+  const options=cards.map(j=>`<option value="character:${esc(j.id)}">视频角色卡 · ${esc(j.name)}${j.accepted?'':' · 待确认应用'}${'character:'+j.id===current?' · 当前应用':''}</option>`).join('')+scenes.map(j=>`<option value="${esc(j.id)}">旧场景 · ${new Date(j.created*1000).toLocaleString('zh-CN')}</option>`).join('');
+  $('active-scene').innerHTML=options||'<option value="">请先到角色制作预览并应用角色卡</option>';
+  if([...cards.map(j=>'character:'+j.id),...scenes.map(j=>j.id)].includes(selected))$('active-scene').value=selected;
+  renderStudioActions();
 }
+function selectedStudioCard(){
+  const value=$('active-scene').value;
+  return (state?.character_cards||[]).find(card=>'character:'+card.id===value);
+}
+function renderStudioActions(){
+  if(!state)return;
+  const card=selectedStudioCard(),active=state.runtime.active;
+  const labels={idle:'自然待机',talk:'平静说话',thanks:'点头答谢',greeting:'微笑招手',present:'介绍手势',happy:'开心说话'};
+  const kinds=card?Object.keys(labels).filter(kind=>card.assets?.[kind]):['greeting','present'];
+  $('studio-actions').innerHTML=kinds.map(kind=>`<button class="button secondary" data-live-action="${kind}" ${active&&['idle','talk','happy'].includes(kind)?'disabled':''}>${card?labels[kind]:{greeting:'旧版招手',present:'旧版介绍'}[kind]}</button>`).join('');
+  $('review-studio-card').hidden=!card||card.accepted;
+  if(!card)$('studio-action-state').textContent='当前画面使用旧场景';
+  $('use-video-character').hidden=!!card||!(state.character_cards||[]).some(j=>['review','accepted'].includes(j.status));
+  $('active-scene-hint').textContent=card?`视频角色卡：${card.name}。${card.accepted?'动作使用本卡的视频文件。':'请先确认并应用，再开始彩排。'}`:'当前选择旧场景，使用旧网格动作，不会播放角色制作中的新视频。';
+  $('studio-action-hint').textContent=card?(active?'动作排队到当前语句结束后播放；收到礼物自动播放点头答谢。':'开播前可直接预览本卡的视频动作；开始彩排后动作按队列播放。'):'新生成的视频请从上方选择“视频角色卡”并应用。';
+}
+$('active-scene').onchange=()=>{
+  renderStudioActions();
+  if(!state.runtime.active){
+    const card=selectedStudioCard();
+    const avatar=card?{mode:'character',character_id:card.id,image:'/media/characters/'+card.id+'/standard.png',name:card.name}:{mode:'scene',scene_id:$('active-scene').value,image:state.settings.avatar.image};
+    $('studio-preview').contentWindow.postMessage({type:'preview-avatar',avatar},location.origin);
+  }
+};
+$('use-video-character').onclick=()=>{
+  const card=(state.character_cards||[]).find(j=>['review','accepted'].includes(j.status));
+  if(card){$('active-scene').value='character:'+card.id;$('active-scene').onchange();}
+};
+$('review-studio-card').onclick=()=>{
+  const card=selectedStudioCard();if(!card)return;
+  navigate('characters');selectCharacter(card.id).then(()=>$('apply-character').scrollIntoView({block:'center',behavior:'smooth'})).catch(error=>toast(error.message,true));
+};
+$('studio-actions').onclick=event=>{
+  const button=event.target.closest('[data-live-action]');if(!button)return;
+  busy(button,'准备动作…',async()=>{
+    const card=selectedStudioCard();
+    if(!state.runtime.active&&card){
+      $('studio-preview').contentWindow.postMessage({type:'scene-action',action:button.dataset.liveAction},location.origin);return;
+    }
+    if(card&&state.runtime.character_id!==card.id)throw Error('所选角色尚未用于当前彩排，请停止后重新开始');
+    await send('/api/studio/action',{kind:button.dataset.liveAction});toast('已加入动作队列，将在当前语句结束后播放');
+  });
+};
+window.addEventListener('message',event=>{
+  if(event.origin!==location.origin||event.source!==$('studio-preview').contentWindow||event.data?.type!=='character-preview-state')return;
+  $('studio-action-state').textContent='当前视频：'+({idle:'自然待机',talk:'平静说话',thanks:'点头答谢',greeting:'微笑招手',present:'介绍手势',happy:'开心说话'}[event.data.kind]||event.data.kind);
+});
 function renderSettings() {
   const s = state.settings;
   for (const section of ['llm','image','tts']) {
@@ -183,9 +235,11 @@ $('simulate-form').onsubmit = e => {
 $('start-studio').onclick = () => {
   if (!$('active-product').value) return toast('请先添加并启用商品', true);
   if (!$('active-scene').value) return toast('请先生成并选择直播场景模型', true);
+  if(selectedStudioCard()&&!selectedStudioCard().accepted){$('review-studio-card').click();return toast('请先预览并确认应用这张视频角色卡');}
   $('studio-preview').contentWindow.postMessage({type:'activate-audio'}, location.origin);
   busy($('start-studio'), '准备讲解配音…', async () => {
-    await send('/api/studio/start', {product_id:$('active-product').value,scene_id:$('active-scene').value});
+    const selected=$('active-scene').value;
+    await send('/api/studio/start', {product_id:$('active-product').value,...(selected.startsWith('character:')?{character_id:selected.slice(10)}:{scene_id:selected})});
     await refresh();
     toast('彩排已开始。首次使用请允许播放声音');
   });
@@ -203,7 +257,7 @@ $('open-stage').onclick = () => busy($('open-stage'), '打开中…', async () =
 });
 $('export-project').onclick = () => busy($('export-project'), '导出中…', async () => {
   if (desktop) {const result=await desktop.exportProject();if(result.ok)toast('项目已导出，不包含服务密钥');}
-  else {const a=document.createElement('a');a.href='/api/export';a.download='yingbo-project.zip';a.click();}
+  else {const a=document.createElement('a');a.href='/api/export';a.download='jibo-project.zip';a.click();}
 });
 $('import-project').onclick = () => busy($('import-project'), '导入中…', async () => {
   const result=await desktop.importProject();if(result.ok)toast('项目已导入');
@@ -270,7 +324,7 @@ window.addEventListener('message', e => {
     }
     editProduct(state.products[0]?.id || null);
     const view = location.hash.slice(1);
-    if (['studio','avatar','knowledge','rules','settings'].includes(view)) navigate(view);
+    if (['studio','avatar','characters','knowledge','rules','settings'].includes(view)) navigate(view);
     const stream = new EventSource('/api/stream');
     stream.onmessage = e => {
       const m = JSON.parse(e.data);
@@ -278,6 +332,8 @@ window.addEventListener('message', e => {
       if (m.type === 'runtime') renderRuntime(m.data);
       if (m.type === 'settings') {state.settings.avatar = m.data.avatar; renderAvatar(); renderStudioScenes();}
       if (m.type === 'scene_job') {state.scene_jobs=[m.data,...(state.scene_jobs||[]).filter(j=>j.id!==m.data.id)];renderStudioScenes();}
+      if (m.type === 'character_job') {state.character_cards=[m.data,...(state.character_cards||[]).filter(j=>j.id!==m.data.id)];renderStudioScenes();}
+      window.dispatchEvent(new CustomEvent('studio-event',{detail:m}));
     };
     stream.onerror = () => {$('studio-status').textContent = '连接中断'; $('studio-detail').textContent = '正在尝试连接本地服务';};
   } catch(e) { toast(e.message, true); }

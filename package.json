@@ -1,13 +1,13 @@
 {
-  "name": "yingbo-studio",
-  "version": "0.3.1",
-  "description": "Yingbo local virtual presenter desktop client",
-  "author": "Yingbo Studio",
+  "name": "jibo-studio",
+  "version": "0.6.2",
+  "description": "极播：二维虚拟主播客户端",
+  "author": "Jibo Studio",
   "private": true,
   "main": "desktop/main.cjs",
   "scripts": {
     "start": "electron .",
-    "test:desktop": "node --test tests/desktop.test.cjs",
+    "test:desktop": "node --test tests/desktop.test.cjs tests/action-player.test.cjs tests/obs-client.test.cjs tests/obs-rehearsal.test.cjs tests/character-player.test.cjs",
     "build:backend": "python scripts/build_backend.py",
     "pack": "electron-builder --dir",
     "dist:win": "electron-builder --win portable --x64",
@@ -21,7 +21,7 @@
   },
   "build": {
     "appId": "studio.yingbo.presenter",
-    "productName": "Yingbo Studio",
+    "productName": "极播",
     "asar": true,
     "directories": {
       "output": "release"
@@ -39,7 +39,7 @@
         ]
       }
     ],
-    "artifactName": "Yingbo-Studio-${version}-${os}-${arch}.${ext}",
+    "artifactName": "Jibo-Studio-${version}-${os}-${arch}.${ext}",
     "win": {
       "target": [
         "portable"
@@ -66,5 +66,8 @@
   "allowScripts": {
     "electron@40.10.6": true,
     "electron-winstaller@5.4.0": true
+  },
+  "dependencies": {
+    "obs-websocket-js": "5.0.8"
   }
 }

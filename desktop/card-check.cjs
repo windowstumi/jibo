@@ -1,0 +1,97 @@
+// Runs inside the real desktop renderer against a copied target character card.
+module.exports=async function checkCharacterCards(){
+  const wait=async(fn,label,timeout=18000)=>{const end=Date.now()+timeout;while(Date.now()<end){const value=await fn();if(value)return value;await new Promise(r=>setTimeout(r,120));}throw Error('Card check timeout: '+label);};
+  const frame=()=>document.getElementById('character-preview').contentDocument;
+  const host=()=>frame()?.getElementById('character-videos');
+  const result={};
+  const initial=await api('/api/state');
+  if(initial.scene_jobs.length)await send('/api/scenes/'+initial.scene_jobs[0].id+'/activate',{});
+  await refresh();navigate('studio');
+  result.legacyNodRemoved=!document.querySelector('[data-scene-action="thanks"]')&&
+    !(initial.scene_jobs.length&&document.querySelector('[data-live-action="thanks"]'));
+  if(!result.legacyNodRemoved)throw Error('Removed legacy nod still has a UI entry');
+  const available=(state.character_cards||[]).find(card=>card.assets?.thanks);
+  if(!available)throw Error('Expected the real target video card');
+  if(initial.scene_jobs.length){
+    if(document.getElementById('use-video-character').hidden)throw Error('Missing switch from old scene to generated video card');
+    document.getElementById('use-video-character').click();
+  }else{
+    document.getElementById('active-scene').value='character:'+available.id;
+    document.getElementById('active-scene').onchange();
+  }
+  const previewHost=()=>document.getElementById('studio-preview').contentDocument?.getElementById('character-videos');
+  await wait(()=>previewHost()?.dataset.characterId===available.id&&previewHost()?.dataset.ready==='true','workbench selected video card preview');
+  if(!document.getElementById('studio-actions').textContent.includes('点头答谢'))throw Error('Workbench still shows old action labels');
+  document.querySelector('[data-live-action="thanks"]').click();
+  await wait(()=>previewHost()?.dataset.kind==='thanks','workbench stopped nod preview');
+  result.stoppedVideoPreview=true;
+  navigate('characters');
+  await wait(()=>document.querySelector('[data-card-id]'),'card list');
+  document.querySelector('[data-card-id]').click();
+  await wait(()=>host()?.dataset.ready==='true','real video decoded');
+  result.originalId=host().dataset.characterId;result.cardCount=document.querySelectorAll('[data-card-id]').length;
+  result.nativeSlots=host().querySelectorAll('video').length;
+  result.previewReady=true;
+  const v=[...host().querySelectorAll('video')].find(v=>!v.paused&&v.readyState>=2);
+  const canvas=document.createElement('canvas');canvas.width=v.videoWidth;canvas.height=v.videoHeight;
+  const ctx=canvas.getContext('2d');ctx.drawImage(v,0,0);const pixels=ctx.getImageData(0,0,canvas.width,canvas.height).data;
+  let transparent=0,opaque=0;for(let i=3;i<pixels.length;i+=4){if(pixels[i]<20)transparent++;if(pixels[i]>240)opaque++;}
+  result.alphaDecoded=transparent>pixels.length/4*.08&&opaque>pixels.length/4*.04;
+  result.actions=[];
+  for(const kind of ['talk','happy','present','greeting']){
+    document.querySelector('[data-preview-kind="'+kind+'"]').click();
+    await wait(()=>host()?.dataset.kind===(kind==='happy'?'talk':kind),'preview '+kind);
+    await new Promise(r=>setTimeout(r,320));result.actions.push({kind,actual:host().dataset.kind,fallback:host().dataset.fallback});
+  }
+  document.getElementById('stop-character-preview').click();await wait(()=>host()?.dataset.kind==='idle','stop preview');
+  document.getElementById('character-test-text').value='你好，欢迎光临。';document.getElementById('character-test-action').value='talk';
+  document.getElementById('test-character-voice').click();
+  await wait(()=>{const a=frame()?.getElementById('stage-audio');return a&&!a.paused&&a.currentTime>0;},'actual TTS playback');
+  result.actualVoice=true;await wait(()=>host()?.dataset.kind==='idle'&&frame().getElementById('stage-audio').ended,'audio ended idle');
+  document.getElementById('character-preview-background').click();
+  await wait(()=>frame()?.getElementById('card-background').hidden,'transparent toggle');result.backgroundToggle=true;
+  document.getElementById('character-reviewed').checked=true;document.getElementById('apply-character').click();
+  await wait(async()=>{const s=await api('/api/state');return s.settings.avatar.mode==='character'&&s.settings.avatar.character_id===result.originalId;},'apply state');
+  await wait(()=>document.getElementById('studio-preview').contentDocument?.getElementById('character-videos')?.dataset.characterId===result.originalId,'studio view updated');
+  result.applied=true;result.selector=document.getElementById('active-scene').value==='character:'+result.originalId;
+  const response=await fetch('/api/characters/'+result.originalId+'/package');const blob=await response.blob();
+  const input=document.getElementById('import-character');const transfer=new DataTransfer();transfer.items.add(new File([blob],'card.zip',{type:'application/zip'}));input.files=transfer.files;input.dispatchEvent(new Event('change'));
+  await wait(()=>document.querySelectorAll('[data-card-id]').length===result.cardCount+1,'import card UI');
+  await wait(()=>host()?.dataset.characterId&&host().dataset.characterId!==result.originalId&&host().dataset.ready==='true','import preview decoded');
+  result.importedId=host().dataset.characterId;result.imported=true;
+  document.getElementById('character-name').value='迁移角色卡测试';document.getElementById('save-character-name').click();
+  await wait(async()=>{const j=await api('/api/characters/'+result.importedId);return j.name==='迁移角色卡测试';},'rename card');
+  document.getElementById('character-reviewed').checked=true;document.getElementById('apply-character').click();
+  await wait(async()=>{const s=await api('/api/state');return s.settings.avatar.character_id===result.importedId;},'switch imported card');
+  await wait(()=>document.getElementById('active-scene').value==='character:'+result.importedId,'switched workbench selector');
+  result.switched=true;
+  navigate('studio');document.getElementById('start-studio').click();
+  await wait(()=>{const d=document.getElementById('studio-preview').contentDocument;const a=d?.getElementById('stage-audio');return a&&!a.paused&&a.currentTime>0;},'workbench narration');
+  result.workbenchVoice=true;result.runtime=(await api('/api/state')).runtime;
+  if(result.runtime.character_id!==result.importedId)throw Error('Workbench started the wrong character card');
+  result.workbenchActions=[];
+  const studioHost=()=>document.getElementById('studio-preview').contentDocument?.getElementById('character-videos');
+  for(const kind of ['thanks','greeting','present']){
+    document.querySelector('[data-live-action="'+kind+'"]').click();
+    await wait(async()=>{const s=await api('/api/state');return s.runtime.current?.kind==='action'&&s.runtime.current.action===kind;},'workbench queue '+kind,25000);
+    await wait(()=>studioHost()?.dataset.kind===kind,'workbench motion '+kind);
+    const playing=[...studioHost().querySelectorAll('video')].find(v=>!v.paused&&v.currentSrc.endsWith('/'+kind+'.webm'));
+    if(!playing)throw Error('Workbench did not play '+kind+' video');
+    const started=playing.currentTime;await new Promise(r=>setTimeout(r,350));
+    if(playing.currentTime<=started)throw Error('Workbench '+kind+' video did not advance');
+    result.workbenchActions.push(kind);
+    await wait(()=>studioHost()?.dataset.kind==='talk','workbench speech after '+kind);
+  }
+  document.querySelector('[data-event-kind="gift"]').click();document.getElementById('sim-user').value='测试观众';document.getElementById('sim-text').value='鲜花';document.querySelector('#simulate-form button[type="submit"]').click();
+  await wait(async()=>{const s=await api('/api/state');return s.runtime.current?.kind==='gift';},'gift voice queue',25000);
+  result.giftVoice=true;
+  await wait(()=>studioHost()?.dataset.kind==='thanks','gift nod animation');
+  const giftVideo=[...studioHost().querySelectorAll('video')].find(v=>!v.paused&&v.currentSrc.endsWith('/'+result.importedId+'/thanks.webm'));
+  const studioDoc=document.getElementById('studio-preview').contentDocument;
+  if(!giftVideo||!studioDoc.getElementById('scene-canvas').hidden)throw Error('Gift used the old renderer instead of this role card video');
+  const giftStart=giftVideo.currentTime;await new Promise(r=>setTimeout(r,350));
+  if(giftVideo.currentTime<=giftStart)throw Error('Gift thanks video did not advance');
+  result.giftVideoSource=giftVideo.currentSrc;
+  result.giftAnimation=true;
+  return result;
+};

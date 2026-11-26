@@ -28,7 +28,7 @@ class StudioTests(unittest.TestCase):
         self.client = self.ctx.__enter__()
         studio.put_value('settings', studio.DEFAULTS)
         studio.put_value('rules', studio.DEFAULT_RULES)
-        studio.runtime.update(active=False, current=None, owner=None, owner_role=None, generation=0, narration=[], cursor=0, product_id='sample-cup')
+        studio.runtime.update(active=False, current=None, owner=None, owner_role=None, generation=0, narration=[], cursor=0, product_id='sample-cup',character_id=None,playback='browser')
         studio.speech_jobs.clear()
         with studio.connect() as c:
             c.execute('DELETE FROM products')
@@ -43,6 +43,33 @@ class StudioTests(unittest.TestCase):
         self.assertEqual(self.client.get('/stage').status_code, 200)
         self.assertEqual(self.client.post('/api/simulate', headers={'Origin':'https://evil.example'}, json={'kind':'comment','text':'test'}).status_code, 403)
         self.assertEqual(self.client.get('/api/state', headers={'Host':'evil.example'}).status_code, 403)
+
+    def test_video_character_rehearsal_is_gated_and_owns_existing_speech_queue(self):
+        import uuid
+        from character_pipeline import REQUIRED_PRESETS,persist
+        folder=studio.DATA/'characters'/uuid.uuid4().hex;folder.mkdir()
+        job={'id':folder.name,'name':'测试角色','accepted':False,'assets':{kind:{'file':kind+'.mp4'} for kind in REQUIRED_PRESETS}}
+        for kind in REQUIRED_PRESETS:(folder/(kind+'.mp4')).write_bytes(b'test')
+        Image.new('RGBA',(256,256),'white').save(folder/'standard.png')
+        persist(folder,job)
+        payload={'product_id':'sample-cup','character_id':folder.name,'playback':'desktop-obs'}
+        self.assertEqual(self.client.post('/api/studio/start',json=payload).status_code,409)
+        job['accepted']=True;persist(folder,job)
+        with patch.object(studio,'synthesize',AsyncMock(return_value='/media/audio/mock.wav')):
+            self.assertEqual(self.client.post('/api/studio/start',json=payload).status_code,200)
+        self.assertFalse(self.client.post('/api/player/tick',json={'client_id':'old-obs','role':'obs'}).json()['owner'])
+        current=self.client.post('/api/player/tick',json={'client_id':'video','role':'desktop-obs'}).json()
+        self.assertTrue(current['owner']);self.assertEqual(current['runtime']['character_id'],folder.name)
+        self.assertEqual(current['runtime']['current']['kind'],'narration')
+        self.assertNotIn('clip',current['runtime']['current'])
+        # A migrated video card can retain a now-missing legacy scene ID.
+        cfg=studio.get_value('settings');cfg['avatar']['scene_id']='f'*32;studio.put_value('settings',cfg)
+        self.assertEqual(self.client.post('/api/studio/action',json={'kind':'greeting'}).status_code,200)
+        for kind in ('thanks','present'):
+            self.assertEqual(self.client.post('/api/studio/action',json={'kind':kind}).status_code,200)
+        (folder/'thanks.mp4').unlink()
+        self.assertEqual(self.client.post('/api/studio/action',json={'kind':'thanks'}).status_code,409)
+        self.client.post('/api/studio/stop');self.assertIsNone(studio.runtime['character_id'])
 
     def test_product_crud_and_restart(self):
         p = self.client.post('/api/products', json={'name':'测试杯','description':'材质是陶瓷','faq':'问：颜色？\n答：蓝色。','price':'20元'}).json()['product']
@@ -101,6 +128,29 @@ class StudioTests(unittest.TestCase):
             self.assertNotIn(b'event_token',project)
         self.client.put('/api/settings',json={'llm':{'clear_key':True}})
         self.assertFalse(studio.get_value('settings')['llm']['key'])
+
+    def test_project_package_preserves_active_character_card_and_local_credentials(self):
+        import uuid
+        from character_pipeline import PRESETS,REQUIRED_PRESETS,persist
+        folder=studio.DATA/'characters'/uuid.uuid4().hex;folder.mkdir()
+        Image.new('RGBA',(256,256),'white').save(folder/'standard.png')
+        assets={}
+        for kind in REQUIRED_PRESETS:
+            (folder/(kind+'.webm')).write_bytes(b'protocol-test-only')
+            assets[kind]=PRESETS[kind]|{'file':kind+'.webm','duration':5,'width':624,'height':624}
+        job={'format':'jibo-character','version':2,'id':folder.name,'name':'迁移角色','accepted':True,'status':'accepted','assets':assets,'steps':{},'providers':{},'costs':{}}
+        persist(folder,job)
+        self.client.put('/api/settings',json={'llm':{'key':'keep-local-secret'}})
+        self.assertEqual(self.client.post('/api/characters/'+folder.name+'/activate').status_code,200)
+        exported=self.client.get('/api/export');self.assertEqual(exported.status_code,200)
+        with zipfile.ZipFile(io.BytesIO(exported.content)) as z:self.assertIn('character.zip',z.namelist())
+        with patch('character_cards.probe_video',return_value={'duration':5,'width':624,'height':624,'fps':'30/1'}):
+            imported=self.client.post('/api/import',files={'file':('project.zip',exported.content,'application/zip')})
+        self.assertEqual(imported.status_code,200,imported.text)
+        cfg=studio.get_value('settings');self.assertEqual(cfg['llm']['key'],'keep-local-secret')
+        self.assertNotEqual(cfg['avatar']['character_id'],folder.name)
+        card=self.client.get('/api/characters/'+cfg['avatar']['character_id']).json()
+        self.assertFalse(card['accepted']);self.assertEqual(card['assets']['idle']['file'],'idle.webm')
 
     def test_desktop_auth_keeps_local_api_private(self):
         with patch.object(studio,'AUTH_TOKEN','local-desktop-token'):
@@ -231,6 +281,70 @@ class StudioTests(unittest.TestCase):
         self.assertFalse(self.client.post('/api/player/tick',json={'client_id':'preview','role':'preview','completed':job_id}).json()['owner'])
         next_job=self.client.post('/api/player/tick',json={'client_id':'obs','role':'obs','completed':job_id}).json()
         self.assertNotEqual(next_job['runtime']['current']['id'],job_id)
+
+    def test_removed_legacy_nod_never_queues_or_falls_back_on_gifts(self):
+        cfg=studio.get_value('settings');cfg['avatar'].update(mode='scene',scene_id='f'*32);studio.put_value('settings',cfg)
+        studio.runtime.update(active=True)
+        with patch.object(studio,'load_actions',return_value={'thanks':{'enabled':True}}) as load:
+            self.assertEqual(self.client.post('/api/studio/action',json={'kind':'thanks'}).status_code,409)
+            studio.speech_jobs.append({'id':'gift-without-nod','kind':'gift','text':'感谢','created':studio.time.time()})
+            gift=self.client.post('/api/player/tick',json={'client_id':'test'}).json()['runtime']['current']
+            self.assertEqual(gift['kind'],'gift');self.assertNotIn('clip',gift)
+            load.assert_not_called()
+
+    def test_action_review_queue_and_project_migration(self):
+        from scene_model import new_job, compile_model
+        from test_scene_model import test_image
+        directory = new_job(studio.DATA/'scenes', b'')
+        for name in ('neutral','speaking','blink'):
+            test_image(name).save(directory/(name+'.raw.png'))
+        Image.new('RGB',(256,256),'#91b4d2').save(directory/'background.raw.png')
+        model = compile_model(directory)
+        self.client.post('/api/scenes/'+directory.name+'/activate')
+        frame = (directory/'neutral.png').read_bytes()
+        video = b'\0\0\0\x18ftypisom' + b'\0'*32
+        metadata = {'duration':2,'width':model['width'],'height':model['height'],'background':'transparent'}
+        route = '/api/scenes/'+directory.name+'/actions/present'
+        uploaded = self.client.post(route+'/clip', data={'metadata':json.dumps(metadata)},
+            files={'file':('present.mp4',video,'video/mp4'),'first':('first.png',frame),'last':('last.png',frame)})
+        self.assertEqual(uploaded.status_code,200,uploaded.text)
+        self.assertFalse(uploaded.json()['actions']['present']['enabled'])
+        studio.runtime.update(active=True)
+        self.assertEqual(self.client.post('/api/studio/action',json={'kind':'present'}).status_code,409)
+        self.assertEqual(self.client.put(route,json={'enabled':True}).status_code,200)
+        self.assertEqual(self.client.post('/api/studio/action',json={'kind':'present'}).status_code,200)
+        first = self.client.post('/api/player/tick',json={'client_id':'test'}).json()['runtime']['current']
+        self.assertEqual(first['kind'],'action')
+        self.assertIn('/media/scenes/',first['clip']['url'])
+        self.client.post('/api/player/tick',json={'client_id':'test','completed':first['id']})
+        studio.speech_jobs.append({'id':'gift-job','kind':'gift','text':'感谢','created':studio.time.time()})
+        gift = self.client.post('/api/player/tick',json={'client_id':'test'}).json()['runtime']['current']
+        self.assertNotIn('clip',gift)
+        self.client.post('/api/studio/stop')
+        archive=self.client.get('/api/export').content
+        with zipfile.ZipFile(io.BytesIO(archive)) as z:
+            self.assertIn('scene/actions.json',z.namelist())
+            self.assertEqual(z.read('scene/'+first['clip']['file']),video)
+        imported=self.client.post('/api/import',files={'file':('project.zip',archive)})
+        self.assertEqual(imported.status_code,200,imported.text)
+        ident=studio.get_value('settings')['avatar']['scene_id']
+        restored=self.client.get('/api/scenes/'+ident).json()['model']['actions']['present']
+        self.assertFalse(restored['enabled'])
+        self.assertEqual(self.client.get('/media/scenes/'+ident+'/'+restored['file']).content,video)
+
+    def test_action_rejects_wrong_end_pose_and_unsafe_files(self):
+        from action_clips import save_action, validate_record
+        from scene_model import new_job
+        directory=new_job(studio.DATA/'scenes',b'')
+        Image.new('RGBA',(128,192),'red').save(directory/'neutral.png')
+        frame=io.BytesIO();Image.new('RGBA',(128,192),(0,0,0,0)).save(frame,'PNG')
+        video=b'\0\0\0\x18ftypisom'+b'\0'*32
+        metadata={'duration':2,'width':128,'height':192,'background':'transparent'}
+        with self.assertRaisesRegex(ValueError,'首尾'):
+            save_action(directory,'thanks',video,metadata,frame.getvalue(),frame.getvalue())
+        self.assertFalse((directory/'actions.json').exists())
+        with self.assertRaises(ValueError):
+            validate_record('thanks',metadata|{'file':'../../secret.mp4'})
 
     def test_scene_activation_export_import_and_rig_validation(self):
         from scene_model import new_job,compile_model

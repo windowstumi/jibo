@@ -11,7 +11,7 @@ module.exports = async function checkScenePixels(model, base) {
     const now=performance.now(),h=768,w=768;renderer.start=now-1700;
     const frame=wind=>{
       renderer.wind=wind;renderer.windVelocity=0;renderer.last=now;
-      renderer.draw(now,0,'idle');
+      renderer.draw(now,0);
       const pixels=new Uint8Array(w*h*4);
       renderer.gl.readPixels(0,0,w,h,renderer.gl.RGBA,renderer.gl.UNSIGNED_BYTE,pixels);
       return pixels;
@@ -28,6 +28,15 @@ module.exports = async function checkScenePixels(model, base) {
         if(changed&&uv>start&&uv<end)changedClothPixels++;
       }
     }
-    return {changedLegPixels,changedClothPixels,independentMouthElements:document.querySelectorAll('#mouth,.mouth,.mouth-demo').length};
+    renderer.start=now-500;renderer.wind=0;renderer.windVelocity=0;renderer.last=now;renderer.draw(now,0);
+    const neutral=new Uint8Array(w*h*4);renderer.gl.readPixels(0,0,w,h,renderer.gl.RGBA,renderer.gl.UNSIGNED_BYTE,neutral);
+    // Old gesture arguments must never restore the removed gift/thanks deformation.
+    let legacyNodPixels=0;
+    for(const removed of ['gift','thanks']){
+      renderer.last=now;renderer.draw(now,0,removed);
+      const actual=new Uint8Array(w*h*4);renderer.gl.readPixels(0,0,w,h,renderer.gl.RGBA,renderer.gl.UNSIGNED_BYTE,actual);
+      for(let i=0;i<actual.length;i++)if(actual[i]!==neutral[i])legacyNodPixels++;
+    }
+    return {changedLegPixels,changedClothPixels,legacyNodPixels,independentMouthElements:document.querySelectorAll('#mouth,.mouth,.mouth-demo').length};
   } finally {renderer.destroy();host.remove();}
 };
