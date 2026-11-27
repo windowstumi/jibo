@@ -17,13 +17,17 @@ class ObsRehearsal {
     this.active=false;this.serial++;clearInterval(this.timer);
     this.audio.pause();this.audio.removeAttribute('src');this.audio.load();
     this.job=null;this.completed='';this.failed='';
+    this.finishing=false;this.gestureUntil=0;
     await this.desktop.obsSpeaking(false).catch(()=>{});
   }
   async finish(failed){
     if(!this.job||!this.active)return;
     this.finishing=true;
-    this[failed?'failed':'completed']=this.job.id;this.job=null;
+    const id=this.job.id,serial=this.serial;
     await this.desktop.obsSpeaking(false).catch(error=>this.onStatus(error.message));
+    if(!failed&&this.gestureUntil>Date.now())await new Promise(resolve=>setTimeout(resolve,this.gestureUntil-Date.now()+250));
+    if(serial!==this.serial)return;
+    this[failed?'failed':'completed']=id;this.job=null;
     this.finishing=false;
     if(failed)this.onStatus('音频播放失败，已标记并跳过');
   }
@@ -37,9 +41,11 @@ class ObsRehearsal {
         if(serial===this.serial)await this.finish(false);return;
       }
       this.audio.src=job.audio;
-      await this.desktop.obsSpeaking(true);
+      await this.desktop.obsSpeaking(true,job.emotion||'talk');
       if(serial!==this.serial)return;
-      if(job.kind==='gift')await this.desktop.obsPresent('thanks');
+      const gesture=job.gesture||(job.kind==='gift'?'thanks':null);
+      this.gestureUntil=0;
+      if(gesture){await this.desktop.obsPresent(gesture);this.gestureUntil=Date.now()+(this.assets?.[gesture]?.duration||3)*1000;}
       if(serial!==this.serial)return;
       await this.audio.play();
       this.onStatus((job.kind==='gift'?'礼物答谢':job.kind==='comment'?'弹幕问答':'商品讲解')+'：'+job.text);
@@ -60,6 +66,7 @@ class ObsRehearsal {
       if(!result.owner)throw Error('声音已由另一客户端接管');
       if(this.completed===completed)this.completed='';if(this.failed===failed)this.failed='';
       const job=result.runtime.current;
+      if(!job&&this.job){this.serial++;this.audio.pause();this.job=null;await this.desktop.obsSpeaking(false);}
       if(job && job.id!==this.job?.id && job.id!==this.completed && job.id!==this.failed)void this.play(job);
     }catch(error){
       this.onStatus(error.message);

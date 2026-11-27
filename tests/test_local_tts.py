@@ -3,6 +3,8 @@ import io
 import json
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
 import unittest
 import wave
 import zipfile
@@ -35,6 +37,55 @@ def voice_zip(change=None, extra=None):
 
 
 class LocalTTSTests(unittest.TestCase):
+    def test_github_source_download_uses_archive_api_accept_and_validates_cache(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            manager=LocalTTS(Path(folder),lambda:{'local_tts':DEFAULT_LOCAL})
+            archive=b'checked-source-archive'
+            spec={**manager.manifest['engine'],'size':len(archive),'sha256':hashlib.sha256(archive).hexdigest()}
+            response=io.BytesIO(archive);response.status=200;response.headers={}
+            target=manager.root/'downloads/engine.zip'
+            with patch('local_tts.urllib.request.urlopen',return_value=response) as fetch:
+                self.assertEqual(manager._download(spec,target,'下载推理代码'),target)
+                self.assertEqual(fetch.call_args.args[0].get_header('Accept'),'application/vnd.github+json')
+                self.assertEqual(target.read_bytes(),archive)
+                manager._download(spec,target,'下载推理代码')
+                self.assertEqual(fetch.call_count,1)
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows venv stdin inheritance')
+    def test_python_probe_does_not_inherit_watched_parent_pipe(self):
+        # Recreate Electron -> backend stdin ownership with a real Python child.
+        # Without DEVNULL the venv launcher hangs although the same -c works in a terminal.
+        script = '''import sys, threading, time, os
+from pathlib import Path
+from unittest.mock import patch, PropertyMock
+from local_tts import LocalTTS, DEFAULT_LOCAL
+threading.Thread(target=lambda:sys.stdin.buffer.read(),daemon=True).start()
+time.sleep(.2)
+manager=LocalTTS(Path(sys.argv[1]),lambda:{'local_tts':DEFAULT_LOCAL})
+with patch.object(LocalTTS,'python',new_callable=PropertyMock,return_value=Path(sys.executable)):
+    manager._valid_python({})
+print('probe-completed',flush=True)
+os._exit(0)
+'''
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'check.py';path.write_text(script,encoding='utf-8')
+            import os
+            env={**os.environ,'PYTHONPATH':str(Path(__file__).resolve().parents[1])}
+            process=subprocess.Popen([sys.executable,str(path),folder],env=env,stdin=subprocess.PIPE,
+                                     stdout=subprocess.PIPE,stderr=subprocess.PIPE,creationflags=subprocess.CREATE_NO_WINDOW)
+            try:
+                import time
+                deadline=time.monotonic()+22
+                while process.poll() is None and time.monotonic()<deadline:time.sleep(.05)
+                if process.poll() is None:process.kill();self.fail('Python probe inherited the watched stdin pipe')
+                out,err=process.communicate(timeout=3)
+                self.assertEqual(process.returncode,0,err.decode(errors='replace'))
+                self.assertIn(b'probe-completed',out)
+            finally:
+                if process.poll() is None:process.kill();process.wait()
+                if process.stdin and not process.stdin.closed:process.stdin.close()
+
     def test_voice_package_hash_and_path_checked_before_install(self):
         for raw in [voice_zip(lambda m: m['gpt'].update(sha256='0'*64)),
                     voice_zip(lambda m: m['reference'].update(file='../reference.wav')),

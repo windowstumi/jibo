@@ -1,6 +1,22 @@
 # 极播 · 虚拟人直播客户端
 
-使用 Electron + Python/FastAPI + SQLite 的本地桌面客户端。当前版本 **0.7.0**。
+使用 Electron + Python/FastAPI + SQLite 的本地桌面客户端。当前版本 **0.9.0**。
+
+0.9.0重整客户端界面：新增「开始使用」准备向导、深色科技配色，角色、知识与互动按日常任务组织；声音、AI、生成服务、直播接入和项目迁移集中到分类设置中心。已有配置与角色数据继续使用，无需重新生成或安装。见[新版使用路线](docs/jibo-0.9-guide.md)。
+
+0.8.4修复互动实验室未启动播出时仅记录待播、没有字幕语音的问题：发送测试会自动启动无商品讲解的互动预览。复用现有播放器，审核步骤按回复语义输出语气和动作，字幕、声音和动画绑定同一任务；音频先缓冲，短语音等手势结束后再接下一条，缺失的情绪片段回退平静说话。见[互动播出验证](docs/interaction-playback.md)。
+
+0.8.3新增「互动守则 → 允许聊天」和随角色卡迁移的角色设定。聊天默认关闭；开启后复用云端JSON模型生成并单独审查，失败则跳过；商品事实仍须知识库依据。加入常见越权指令与编码内容筛查，关闭聊天/改角色设定/改守则会取消旧聊天回复。提示注入防护不能保证100%拦截，使用及验证边界见 [聊天与角色设定](docs/chat-and-persona.md)。
+
+0.8.2允许基于当前角色名称回答姓名、身份和简单招呼，无需命中商品知识库，也不调用云端模型；商品回答仍须有知识库依据，输入与输出过滤保持生效。角色名称在「角色制作」修改并保存。另修复GitHub推理源码下载415请求头问题。
+
+0.8.1修复本地语音安装器检查Python时继承后台管道导致的15秒超时；环境检查改用独立输入与隔离启动，继续复用已有环境和下载。
+
+## 0.8.0 统一角色制作
+
+已移除旧版场景实验页面、网格绑定与衣料编辑、旧图片表情驱动、旧预制动作播放器和相关生成/编辑/启用接口。直播仅播放视频角色卡。动作预览、语音测试、透明背景、应用到工作台与角色迁移集中在「角色制作」。
+
+「角色制作 → 本地建卡素材」可上传透明正面人物图与独立背景，也可选用历史场景中的人物图；下载参考图和复制动作提示词也在这里。已有角色卡保持可用；旧场景项目只能导入图片、背景、商品和规则，需配齐本角色视频后建卡再播出。旧数据文件保留，不会自动删除。详见[0.8迁移说明](docs/jibo-0.8-guide.md)。以下旧版本章节为历史记录，已不代表当前可用入口。
 
 ## 0.7.0 项目内本地克隆语音
 
@@ -76,9 +92,9 @@ Windows 打包：
 .\build.cmd -Target directory
 ```
 
-输出为 `release/Jibo-Studio-0.7.0-win-x64.exe`。目录版位于 `release/win-unpacked/`，复制时必须保留整个目录。安装包内包含 Python 后台和 Electron，使用者不需安装开发环境；可选本地语音的大型依赖在启用时下载。
+输出为 `release/Jibo-Studio-0.8.1-win-x64.exe`。目录版位于 `release/win-unpacked/`，复制时必须保留整个目录。安装包内包含 Python 后台和 Electron，使用者不需安装开发环境；可选本地语音的大型依赖在启用时下载。
 
-**Live2D 实验工具另行启用：** `setup.cmd -WithLive2D` 或 `live2d.cmd -Mode doctor`。它会把 PSD2Live 的便携版（含 Java）和拆层依赖放进本项目。用法见 [Live2D 工具说明](tools/avatar_pipeline/README.md)。生成图片仍需自己的图片 API 密钥；绑定需校准图层/关节配置，不能把实验脚本当作任意图片自动绑定服务。新版角色卡使用视频播放，旧场景保留原有2.5D渲染器。
+**Live2D 实验工具另行启用：** `setup.cmd -WithLive2D` 或 `live2d.cmd -Mode doctor`。它会把 PSD2Live 的便携版（含 Java）和拆层依赖放进本项目。用法见 [Live2D 工具说明](tools/avatar_pipeline/README.md)。生成图片仍需自己的图片 API 密钥；绑定需校准图层/关节配置，不能把实验脚本当作任意图片自动绑定服务。新版角色卡使用视频播放，旧场景渲染器已在0.8移除，历史图片可在角色制作中继续使用。
 
 固定版本、校验下载、换路径重建、离线范围、支持平台和验证方式见 [环境与打包说明](docs/PORTABLE.md)。macOS/Linux 仍采用后文的手动安装方式，并须在目标系统构建；本次一键环境入口仅支持 Windows x64。
 
@@ -111,7 +127,7 @@ Windows 打包：
 
 ## Windows 便携版
 
-程序：`release/Jibo-Studio-0.7.0-win-x64.exe`。
+程序：`release/Jibo-Studio-0.8.1-win-x64.exe`。
 
 - 将 EXE 放到可写文件夹，双击运行。同目录默认创建 `JiboData` 保存项目和配置；已有 `YingboData` 时沿用旧目录。
 - 关闭程序后，将 **EXE 与整个 JiboData（或已沿用的 YingboData）文件夹**复制到另一台 Windows 电脑即可迁移。
@@ -172,13 +188,13 @@ npm run dist:mac    # macOS ZIP / .app
 
 ## 第一次使用
 
-1. 接入设置填写图片服务的基础地址、模型、密钥和代理，先测试连接。Windows 默认可使用已安装的中文系统音色，其他系统需配置兼容 TTS。
-2. 形象工坊上传参考图，点击生成完整场景；会产生4次图片服务调用费用，不自动重试。也可导入已有项目包。
-3. 载入场景预览，检查表情、绑定和衣料范围，确认后用于直播。生成模型前不能开始彩排，不再使用独立嘴部替代。
-4. 商品知识库填写真实参数、价格、FAQ 和分段讲解稿；示例商品仅供验证。修改稿件或音色后重新开始彩排。
-5. 直播工作台选择角色场景和商品，开始彩排，模拟商品提问、屏蔽语句和礼物，观察处理记录和语音。
+1. 在接入设置选择语音服务：Windows系统音色、兼容接口或本地NVIDIA克隆音色。本地克隆音色安装与音色包需按组件说明准备。
+2. 在角色制作导入角色卡，或在「本地建卡素材」选择/上传透明人物图、背景，再配置五段本角色成品视频并点击本地建卡。只有带背景原图时，使用云端新角色制作入口并核对费用。
+3. 检查动作与语音，勾选确认后应用到工作台。旧场景网格绑定不再使用；旧项目仅迁移图片、背景、商品与规则。
+4. 在商品知识库填写真实参数、价格、FAQ和分段讲解稿；修改稿件或音色后重新开始彩排。
+5. 工作台选择视频角色卡和商品，开始彩排，模拟商品提问、屏蔽语句和礼物。正式推流使用透明窗口或OBS浏览器源。
 
-场景生成会标准化角色、生成表情及独立背景，再去绿幕并绑定。它不是自动拆层绑定的 Live2D；衣料使用遮罩内纹理流动，外轮廓固定。单纯上传图片不会自动变成模型。
+详细步骤见[角色制作与旧项目迁移](docs/jibo-0.8-guide.md)。
 
 ## 项目迁移
 
@@ -219,12 +235,14 @@ npm run smoke:desktop
 node scripts/smoke_desktop.cjs "release/win-unpacked/极播.exe"
 ```
 
-Python 检查覆盖过滤、知识库、迁移、鉴权、真实 Windows 配音和队列。Node 检查覆盖平台路径、数据目录、OBS协议及语音/动作取消。新增角色测试覆盖报价、密钥隐藏、导入导出、预算停止和超时不重复提交。无场景的桌面检查验证启动和禁止静态图开播；已有场景时，用以下命令进一步测试实际配音、播出、迁移和衣料像素隔离（替换最后一个路径）：
+Python检查覆盖过滤、知识库、迁移、鉴权、真实Windows配音和队列；Node检查覆盖平台路径、数据目录、OBS协议及视频动作取消。使用实际视频角色卡进行桌面回归：
 
 ```powershell
-node scripts/smoke_desktop.cjs --dev "D:\YourData\scenes\<scene-id>"
-node scripts/smoke_desktop.cjs "release\Jibo-Studio-0.5.1-win-x64.exe" "D:\YourData\scenes\<scene-id>"
+node scripts/smoke_desktop.cjs --dev --card "D:\YourData\characters\<character-id>"
+node scripts/smoke_desktop.cjs "release/Jibo-Studio-0.8.1-win-x64.exe" --card "D:\YourData\characters\<character-id>"
 ```
+
+回归验证素材上传、角色卡导入切换、实际TTS、工作台手势和礼物答谢、透明播出声音归属。旧场景像素/绑定回归已随旧渲染器删除。
 
 测试结束自动退出，数据保存在临时目录，不修改正式项目，也不发起付费图片生成。
 
@@ -238,14 +256,10 @@ node scripts/smoke_desktop.cjs "release\Jibo-Studio-0.5.1-win-x64.exe" "D:\YourD
 
 ## 文件
 
-- `desktop/main.cjs`：窗口、菜单、原生文件对话框、后台生命周期。
-- `desktop/preload.cjs`：受限的桌面功能桥接。
-- `desktop/platform.cjs`：跨平台路径与数据目录。
-- `backend_entry.py`：内置后台入口、端口选择、父进程关闭处理。
-- `app.py`：商品、规则、语音、事件、迁移与本地鉴权。
-- `static/`：客户端内置界面和播出渲染。
-- `character_pipeline.py`、`character_routes.py`：GPT/万相任务、费用与角色包。
-- `desktop/obs-client.cjs`、`static/obs-rehearsal.js`：复用OBS播放与现有语音队列。
-- `scripts/build_backend.py`：后台打包。
-- `scripts/smoke_desktop.cjs`：桌面集成检查。
-- `build.ps1`、`start.ps1`：Windows 构建和开发启动。
+- `app.py`：本地API、商品知识、互动规则、语音队列和项目迁移。
+- `character_cards.py` / `character_routes.py`：角色素材、建卡、预览配置、导入导出。
+- `character_images.py` / `character_pipeline.py`：共享图片处理、云端角色制作与预算。
+- `static/character-player.js` / `static/stage.js`：原生视频播放和语音互动。
+- `local_tts.py` / `tools/local_tts/`：可选本地NVIDIA语音组件。
+- `desktop/`：Electron外壳、透明播出窗口与可选OBS控制。
+- `docs/jibo-0.8-guide.md`：当前角色工作流；旧版本文档用于历史参考。

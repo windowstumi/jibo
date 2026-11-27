@@ -22,7 +22,8 @@ from PIL import Image,ImageOps
 from character_pipeline import (pipeline_settings,video_base,provider_json,query_video,
                                 download_video,probe_video,ffprobe_binary)
 from image_service import image_client,safe_detail
-from scene_model import video_input_image
+from character_images import video_input_image
+from character_cards import local_source
 
 MODEL='wan2.2-i2v-flash'
 DEFAULT_KINDS=('idle','talk','thanks')
@@ -48,9 +49,7 @@ NEGATIVE='镜头移动，推拉摇移，切镜，背景场景，地面，阴影�
 
 def prepared_image(data,settings):
     """Use the accepted front cutout; never fall back to the original poster."""
-    ident=settings.get('avatar',{}).get('scene_id','')
-    if not isinstance(ident,str) or not re.fullmatch(r'[a-f0-9]{32}',ident):raise ValueError('请先制作并选择透明正面角色，不能直接使用带背景原图')
-    source=data/'scenes'/ident/'neutral.png'
+    source,_=local_source(data,settings)
     with Image.open(source) as im:character=ImageOps.exif_transpose(im).convert('RGBA')
     original=io.BytesIO();character.save(original,'PNG')
     encoded=io.BytesIO();video_input_image(character).save(encoded,'PNG')

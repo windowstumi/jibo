@@ -319,13 +319,31 @@ class LocalTTS:
             finally:
                 self.installer_process = None
 
+    def _valid_python(self, env):
+        if not self.python.is_file():
+            return False
+        try:
+            # The backend watches Electron's stdin pipe. A Windows venv launcher
+            # must not inherit that busy pipe, or even `python -c` can deadlock.
+            check = subprocess.run([str(self.python), '-I', '-c', 'import sys,json;print(json.dumps([sys.prefix,sys.base_prefix]))'],
+                                   env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                   creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), timeout=15)
+        except subprocess.TimeoutExpired as error:
+            raise ValueError('本地语音Python启动检查超时，已有环境和下载已保留。请查看install.log。') from error
+        try:
+            prefix, base = json.loads(check.stdout)
+            return (check.returncode == 0 and Path(prefix).resolve() == self.python.parents[1].resolve()
+                    and Path(base).resolve().is_relative_to((self.root / 'python').resolve()))
+        except (ValueError, TypeError):
+            return False
+
     def _install(self):
         if sys.platform != 'win32':
             raise ValueError('本地音色组件当前仅支持 Windows x64 与 NVIDIA 显卡')
         self.root.mkdir(parents=True, exist_ok=True)
         flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
         gpu = subprocess.run(['nvidia-smi', '--query-gpu=name,driver_version', '--format=csv,noheader'],
-                             capture_output=True, text=True, creationflags=flags, timeout=15)
+                             stdin=subprocess.DEVNULL, capture_output=True, text=True, creationflags=flags, timeout=15)
         if gpu.returncode:
             raise ValueError('未检测到 NVIDIA 驱动，请先安装或更新显卡驱动')
         self.update('installing', '正在准备 NVIDIA 推理组件', gpu=gpu.stdout.strip())
@@ -350,16 +368,7 @@ class LocalTTS:
         env['NO_PROXY'] = ','.join(filter(None, [env.get('NO_PROXY', ''), '127.0.0.1,localhost,::1']))
         self._command([uv, 'python', 'install', '--no-bin', '--no-registry', self.manifest['python']], env,
                       '正在安装独立 Python 环境')
-        valid_python = False
-        if self.python.is_file():
-            check = subprocess.run([str(self.python), '-c', 'import sys,json;print(json.dumps([sys.prefix,sys.base_prefix]))'],
-                                   capture_output=True, text=True, creationflags=flags, timeout=15)
-            try:
-                prefix, base = json.loads(check.stdout)
-                valid_python = (check.returncode == 0 and Path(prefix).resolve() == self.python.parents[1].resolve()
-                                and Path(base).resolve().is_relative_to((self.root / 'python').resolve()))
-            except (ValueError, TypeError):
-                pass
+        valid_python = self._valid_python(env)
         if not valid_python:
             venv = self.root / 'venv'
             if venv.exists():
@@ -520,7 +529,7 @@ class LocalTTS:
     def _kill(process):
         if process and process.poll() is None:
             if sys.platform == 'win32':
-                subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True,
+                subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], stdin=subprocess.DEVNULL, capture_output=True,
                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), timeout=10)
             else:
                 process.terminate()

@@ -1,0 +1,58 @@
+// Run in the actual Electron renderer: routes, grouped forms, and honest onboarding.
+module.exports=async function checkWorkspace(){
+  const wait=async fn=>{const end=Date.now()+10000;while(Date.now()<end){if(await fn())return;await new Promise(r=>setTimeout(r,100));}throw Error('Workspace not ready');};
+  await wait(()=>typeof state==='object'&&state&&document.getElementById('setup-steps').children.length===4);
+  const result={};
+  navigate('home');
+  if(!document.getElementById('view-home').classList.contains('active'))throw Error('Home route was not activated');
+  const clean={settings:{avatar:{mode:'sample'},tts:{provider:'windows',voice:'Test'},llm:{has_key:false},interaction:{allow_chat:false}},platform:'win32',products:[],rules:[],character_cards:[]};
+  const steps=readiness(clean,null);
+  if(steps[0].ready||steps[2].ready||steps[3].ready)throw Error('Empty workspace claims to have assets or rules');
+  clean.products=[{id:'sample-cup',enabled:true}];
+  if(readiness(clean,null)[2].ready)throw Error('Sample product presented as completed business setup');
+  clean.settings.tts.provider='local';clean.settings.local_tts={voice_id:'selected'};
+  if(readiness(clean,{phase:'ready',loaded_voice:'other'}).some((step,i)=>i===1&&step.ready))throw Error('Wrong voice marked ready');
+  result.honestReadiness=true;
+  const ids=[...document.querySelectorAll('[id]')].map(e=>e.id);
+  if(new Set(ids).size!==ids.length||document.querySelector('form form'))throw Error('Duplicate controls or nested forms');
+  result.groups=[];
+  for(const [group,input] of Object.entries({voice:'tts-provider',brain:'llm-url',image:'image-url',generation:'vision-url',output:'obs-url',data:'export-project'})){
+    workspaceRoute('settings',group);
+    const control=document.getElementById(input);
+    if(!control.getClientRects().length)throw Error('Settings category hides its control: '+group);
+    if(document.querySelectorAll('[data-settings-panel]:not([hidden])').length!==1)throw Error('Multiple settings categories visible');
+    if(control.closest('form')?.hidden)throw Error('Settings category hides its save form: '+group);
+    result.groups.push(group);
+  }
+  workspaceRoute('settings','voice');
+  const rate=document.getElementById('tts-rate'),oldRate=rate.value;rate.value='1';
+  selectSettingsGroup('brain');selectSettingsGroup('voice');
+  if(rate.value!=='1')throw Error('Changing category lost an unsaved voice edit');
+  const mainForm=document.getElementById('settings-form');
+  mainForm.requestSubmit(mainForm.querySelector('[type="submit"]'));
+  await wait(async()=>!mainForm.querySelector('[type="submit"]').disabled&&(await api('/api/state')).settings.tts.rate===1);
+  rate.value=oldRate;mainForm.requestSubmit(mainForm.querySelector('[type="submit"]'));
+  await wait(async()=>!mainForm.querySelector('[type="submit"]').disabled&&(await api('/api/state')).settings.tts.rate===Number(oldRate));
+  await wait(()=>typeof characterConfig==='object'&&characterConfig);
+  selectSettingsGroup('generation');
+  const price=document.getElementById('price-analysis'),previous=price.value;price.value='0.06';
+  const generationForm=document.getElementById('character-config');
+  generationForm.requestSubmit(generationForm.querySelector('[type="submit"]'));
+  await wait(async()=>!generationForm.querySelector('[type="submit"]').disabled&&(await api('/api/characters/config')).pricing.analysis_cny===.06);
+  price.value=previous;generationForm.requestSubmit(generationForm.querySelector('[type="submit"]'));
+  await wait(async()=>!generationForm.querySelector('[type="submit"]').disabled&&(await api('/api/characters/config')).pricing.analysis_cny===Number(previous));
+  result.settingsSaved=true;
+  workspaceRoute('characters','materials');
+  if(!document.getElementById('character-local-materials').open)throw Error('Local assembly route did not expand');
+  document.getElementById('open-character-config').click();
+  if(!document.getElementById('video-url').getClientRects().length)throw Error('Generation link points to retired panel');
+  workspaceRoute('home');document.getElementById('home-next').click();
+  result.nextStepDestination=document.querySelector('.view.active').id;
+  if(result.nextStepDestination==='view-home')throw Error('Getting started primary action did not navigate');
+  navigate('home');
+  result.theme=getComputedStyle(document.body).backgroundColor;
+  result.darkTheme=result.theme==='rgb(10, 16, 27)';
+  result.noOverflow=document.documentElement.scrollWidth<=innerWidth;
+  if(!result.darkTheme||!result.noOverflow)throw Error('Workspace theme or width failed');
+  return result;
+};

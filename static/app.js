@@ -29,7 +29,12 @@ async function busy(button, label, fn) {
 function navigate(view) {
   document.querySelectorAll('.view').forEach(e => e.classList.toggle('active', e.id === 'view-' + view));
   document.querySelectorAll('.nav-item').forEach(e => e.classList.toggle('active', e.dataset.view === view));
-  $('page-name').textContent = document.querySelector(`[data-view="${view}"]`).textContent.trim().slice(1).trim();
+  $('page-name').textContent = document.querySelector(`[data-view="${view}"] b`).textContent;
+  document.querySelectorAll('.nav-item').forEach(e=>{
+    if(e.dataset.view===view)e.setAttribute('aria-current','page');else e.removeAttribute('aria-current');
+  });
+  if(view==='home'&&typeof renderWorkspace==='function')renderWorkspace();
+  window.scrollTo({top:0,behavior:'instant'});
 
   history.replaceState(null, '', '#' + view);
 }
@@ -66,9 +71,10 @@ function renderEvents(events) {
 }
 function renderRuntime(runtime) {
   state.runtime = runtime;
-  $('studio-status').textContent = runtime.active ? '彩排进行中' : '准备就绪';
-  $('studio-detail').textContent = runtime.current ? (runtime.current.kind === 'action' ? '正在播放'+({thanks:'点头答谢',greeting:'微笑招手',present:'介绍手势'}[runtime.current.action]||'动作') : runtime.current.kind === 'gift' ? '正在答谢礼物' : runtime.current.kind === 'comment' ? '正在回答商品问题' : '正在讲解商品') : runtime.active ? '等待音频播放器连接' : '先选择商品，开始本地彩排';
+  $('studio-status').textContent = runtime.active ? (runtime.mode==='interaction'?'互动预览中':'彩排进行中') : '准备就绪';
+  $('studio-detail').textContent = runtime.current ? (runtime.current.kind === 'action' ? '正在播放'+({thanks:'点头答谢',greeting:'微笑招手',present:'介绍手势'}[runtime.current.action]||'动作') : runtime.current.kind === 'gift' ? '正在答谢礼物' : runtime.current.kind === 'comment' ? '正在回复弹幕' : '正在讲解商品') : runtime.active ? '等待音频播放器连接' : '先选择商品，开始本地彩排';
   $('queue-badge').textContent = runtime.queue_length + ' 条待播';
+  if(runtime.active&&!runtime.current&&runtime.mode==='interaction')$('studio-detail').textContent='等待弹幕或礼物互动';
   renderStudioActions();
 }
 function renderRules() {
@@ -80,18 +86,16 @@ function renderRules() {
 function renderAvatar() {
   const a = state.settings.avatar;
   $('avatar-name').textContent = a.name;
-  $('avatar-image').src = a.original || a.image;
 }
 function renderStudioScenes() {
   const a=state.settings.avatar;
-  const current=a.mode==='character'?'character:'+a.character_id:a.scene_id;
+  const current=a.mode==='character'?'character:'+a.character_id:'';
   const selected=$('active-scene').dataset.active!==String(current)?current:$('active-scene').value||current;
   $('active-scene').dataset.active=String(current);
-  const scenes=(state.scene_jobs||[]).filter(j=>['review','accepted'].includes(j.status));
   const cards=(state.character_cards||[]).filter(j=>['review','accepted'].includes(j.status));
-  const options=cards.map(j=>`<option value="character:${esc(j.id)}">视频角色卡 · ${esc(j.name)}${j.accepted?'':' · 待确认应用'}${'character:'+j.id===current?' · 当前应用':''}</option>`).join('')+scenes.map(j=>`<option value="${esc(j.id)}">旧场景 · ${new Date(j.created*1000).toLocaleString('zh-CN')}</option>`).join('');
+  const options=cards.map(j=>`<option value="character:${esc(j.id)}">视频角色卡 · ${esc(j.name)}${j.accepted?'':' · 待确认应用'}${'character:'+j.id===current?' · 当前应用':''}</option>`).join('');
   $('active-scene').innerHTML=options||'<option value="">请先到角色制作预览并应用角色卡</option>';
-  if([...cards.map(j=>'character:'+j.id),...scenes.map(j=>j.id)].includes(selected))$('active-scene').value=selected;
+  if(cards.map(j=>'character:'+j.id).includes(selected))$('active-scene').value=selected;
   renderStudioActions();
 }
 function selectedStudioCard(){
@@ -102,19 +106,19 @@ function renderStudioActions(){
   if(!state)return;
   const card=selectedStudioCard(),active=state.runtime.active;
   const labels={idle:'自然待机',talk:'平静说话',thanks:'点头答谢',greeting:'微笑招手',present:'介绍手势',happy:'开心说话'};
-  const kinds=card?Object.keys(labels).filter(kind=>card.assets?.[kind]):['greeting','present'];
-  $('studio-actions').innerHTML=kinds.map(kind=>`<button class="button secondary" data-live-action="${kind}" ${active&&['idle','talk','happy'].includes(kind)?'disabled':''}>${card?labels[kind]:{greeting:'旧版招手',present:'旧版介绍'}[kind]}</button>`).join('');
+  const kinds=card?Object.keys(labels).filter(kind=>card.assets?.[kind]):[];
+  $('studio-actions').innerHTML=kinds.map(kind=>`<button class="button secondary" data-live-action="${kind}" ${active&&['idle','talk','happy'].includes(kind)?'disabled':''}>${labels[kind]}</button>`).join('');
   $('review-studio-card').hidden=!card||card.accepted;
-  if(!card)$('studio-action-state').textContent='当前画面使用旧场景';
+  if(!card)$('studio-action-state').textContent='尚未应用视频角色卡';
   $('use-video-character').hidden=!!card||!(state.character_cards||[]).some(j=>['review','accepted'].includes(j.status));
-  $('active-scene-hint').textContent=card?`视频角色卡：${card.name}。${card.accepted?'动作使用本卡的视频文件。':'请先确认并应用，再开始彩排。'}`:'当前选择旧场景，使用旧网格动作，不会播放角色制作中的新视频。';
+  $('active-scene-hint').textContent=card?`视频角色卡：${card.name}。${card.accepted?'动作使用本卡的视频文件。':'请先确认并应用，再开始彩排。'}`:'请到角色制作选择视频角色卡；历史人物图可在建卡素材中继续使用。';
   $('studio-action-hint').textContent=card?(active?'动作排队到当前语句结束后播放；收到礼物自动播放点头答谢。':'开播前可直接预览本卡的视频动作；开始彩排后动作按队列播放。'):'新生成的视频请从上方选择“视频角色卡”并应用。';
 }
 $('active-scene').onchange=()=>{
   renderStudioActions();
   if(!state.runtime.active){
     const card=selectedStudioCard();
-    const avatar=card?{mode:'character',character_id:card.id,image:'/media/characters/'+card.id+'/standard.png',name:card.name}:{mode:'scene',scene_id:$('active-scene').value,image:state.settings.avatar.image};
+    const avatar=card?{mode:'character',character_id:card.id,image:'/media/characters/'+card.id+'/standard.png',name:card.name}:{mode:'sample',image:state.settings.avatar.image};
     $('studio-preview').contentWindow.postMessage({type:'preview-avatar',avatar},location.origin);
   }
 };
@@ -131,7 +135,7 @@ $('studio-actions').onclick=event=>{
   busy(button,'准备动作…',async()=>{
     const card=selectedStudioCard();
     if(!state.runtime.active&&card){
-      $('studio-preview').contentWindow.postMessage({type:'scene-action',action:button.dataset.liveAction},location.origin);return;
+      $('studio-preview').contentWindow.postMessage({type:'character-action',action:button.dataset.liveAction},location.origin);return;
     }
     if(card&&state.runtime.character_id!==card.id)throw Error('所选角色尚未用于当前彩排，请停止后重新开始');
     await send('/api/studio/action',{kind:button.dataset.liveAction});toast('已加入动作队列，将在当前语句结束后播放');
@@ -139,7 +143,7 @@ $('studio-actions').onclick=event=>{
 };
 window.addEventListener('message',event=>{
   if(event.origin!==location.origin||event.source!==$('studio-preview').contentWindow||event.data?.type!=='character-preview-state')return;
-  $('studio-action-state').textContent='当前视频：'+({idle:'自然待机',talk:'平静说话',thanks:'点头答谢',greeting:'微笑招手',present:'介绍手势',happy:'开心说话'}[event.data.kind]||event.data.kind);
+  $('studio-action-state').textContent='当前视频：'+({idle:'自然待机',talk:'平静说话',thanks:'点头答谢',greeting:'微笑招手',present:'介绍手势',happy:'开心说话'}[event.data.kind]||event.data.kind)+(event.data.fallback?'（缺少对应情绪视频，使用平静说话）':'');
 });
 function renderSettings() {
   const s = state.settings;
@@ -157,6 +161,7 @@ function renderSettings() {
   $('event-url').value = location.origin + '/api/events';
   $('event-token').value = s.event_token;
   $('gift-template').value = s.gift_template;
+  $('allow-chat').checked = s.interaction?.allow_chat === true;
   $('tts-api-fields').hidden = s.tts.provider !== 'compatible';
   if(typeof localSpeechVisibility==='function')localSpeechVisibility();
   $('image-proxy-mode').value = s.image.proxy_mode || 'system';
@@ -166,6 +171,7 @@ function renderSettings() {
 async function refresh() {
   state = await api('/api/state');
   renderProducts(); renderStudioScenes(); renderEvents(state.events); renderRuntime(state.runtime);
+  if(typeof renderWorkspace==='function')renderWorkspace();
 }
 async function copy(text, message) {
   try { await navigator.clipboard.writeText(text); toast(message); }
@@ -216,6 +222,12 @@ $('save-rules').onclick = () => busy($('save-rules'), '保存中…', async () =
 $('save-gift').onclick = () => busy($('save-gift'), '保存中…', async () => {
   await send('/api/settings', {gift_template:$('gift-template').value}, 'PUT'); toast('答谢文案已保存');
 });
+$('save-interaction').onclick = () => busy($('save-interaction'), '保存中…', async () => {
+  await send('/api/settings', {interaction:{allow_chat:$('allow-chat').checked}}, 'PUT');
+  await refresh();
+  $('allow-chat').checked=state.settings.interaction.allow_chat;
+  toast(state.settings.interaction.allow_chat?'已允许云端聊天，互动守则持续生效':'已关闭聊天，保留商品问答与基础招呼');
+});
 document.querySelectorAll('[data-event-kind]').forEach(e => e.onclick = () => {
   eventKind = e.dataset.eventKind;
   document.querySelectorAll('[data-event-kind]').forEach(x => x.classList.toggle('selected', x === e));
@@ -227,20 +239,28 @@ document.querySelectorAll('[data-event-kind]').forEach(e => e.onclick = () => {
 document.querySelectorAll('[data-sample]').forEach(e => e.onclick = () => $('sim-text').value = e.dataset.sample);
 $('simulate-form').onsubmit = e => {
   e.preventDefault(); busy(e.submitter, '发送中…', async () => {
+    $('studio-preview').contentWindow.postMessage({type:'activate-audio'}, location.origin);
+    const latest=await api('/api/state');
+    if(!latest.runtime.active){
+      const card=selectedStudioCard();
+      if(!card?.accepted)throw Error('请先选择已验收并应用的角色卡，再测试互动');
+      await send('/api/studio/start',{character_id:card.id,product_id:$('active-product').value||'',interactions_only:true});
+      await refresh();
+    }
     const event = {kind:eventKind, username:$('sim-user').value.trim(), count:Number($('sim-count').value)};
     event[eventKind === 'gift' ? 'gift' : 'text'] = $('sim-text').value.trim();
     await send('/api/simulate', event);
-    toast(state.runtime.active ? '已发送，处理结果将出现在互动记录' : '已发送；开始彩排后可播出通过的互动');
+    toast('已发送，通过审核的回复将自动播放字幕、语音和动作');
   });
 };
 $('start-studio').onclick = () => {
   if (!$('active-product').value) return toast('请先添加并启用商品', true);
-  if (!$('active-scene').value) return toast('请先生成并选择直播场景模型', true);
+  if (!$('active-scene').value) return toast('请先制作并选择视频角色卡', true);
   if(selectedStudioCard()&&!selectedStudioCard().accepted){$('review-studio-card').click();return toast('请先预览并确认应用这张视频角色卡');}
   $('studio-preview').contentWindow.postMessage({type:'activate-audio'}, location.origin);
   busy($('start-studio'), '准备讲解配音…', async () => {
     const selected=$('active-scene').value;
-    await send('/api/studio/start', {product_id:$('active-product').value,...(selected.startsWith('character:')?{character_id:selected.slice(10)}:{scene_id:selected})});
+    await send('/api/studio/start', {product_id:$('active-product').value,character_id:selected.slice(10)});
     await refresh();
     toast('彩排已开始。首次使用请允许播放声音');
   });
@@ -265,18 +285,6 @@ $('import-project').onclick = () => busy($('import-project'), '导入中…', as
 });
 $('open-data').onclick = () => busy($('open-data'), '打开中…', () => desktop.openData());
 $('copy-token').onclick = () => copy($('event-token').value, '事件接入密钥已复制');
-$('avatar-file').onchange = async e => {
-  const file = e.target.files[0]; if (!file) return;
-  if (file.size > 10000000) return toast('图片不能超过10MB', true);
-  const form = new FormData(); form.append('file', file);
-  const zone = document.querySelector('.upload-zone');
-  zone.style.pointerEvents = 'none';
-  try {
-    const a = await api('/api/avatar/upload', {method:'POST', body:form});
-    state.settings.avatar = a; renderAvatar(); toast('参考图已上传，当前直播模型保持不变');
-  } catch(e) { toast(e.message, true); }
-  finally { zone.style.pointerEvents = ''; $('avatar-file').value = ''; }
-};
 $('tts-provider').onchange = () => $('tts-api-fields').hidden = $('tts-provider').value !== 'compatible';
 $('image-proxy-mode').onchange = () => $('image-proxy-fields').hidden = $('image-proxy-mode').value !== 'manual';
 function imageSettings() {
@@ -326,15 +334,16 @@ window.addEventListener('message', e => {
     }
     editProduct(state.products[0]?.id || null);
     const view = location.hash.slice(1);
-    if (['studio','avatar','characters','knowledge','rules','settings'].includes(view)) navigate(view);
+    if(view==='avatar')navigate('characters');
+    if (['home','studio','characters','knowledge','rules','settings'].includes(view)) navigate(view);
+    else if(view!=='avatar')navigate('home');
     const stream = new EventSource('/api/stream');
     stream.onmessage = e => {
       const m = JSON.parse(e.data);
       if (m.type === 'events') renderEvents(m.data);
       if (m.type === 'runtime') renderRuntime(m.data);
-      if (m.type === 'settings') {state.settings.avatar = m.data.avatar; renderAvatar(); renderStudioScenes();}
-      if (m.type === 'scene_job') {state.scene_jobs=[m.data,...(state.scene_jobs||[]).filter(j=>j.id!==m.data.id)];renderStudioScenes();}
-      if (m.type === 'character_job') {state.character_cards=[m.data,...(state.character_cards||[]).filter(j=>j.id!==m.data.id)];renderStudioScenes();}
+      if (m.type === 'settings') {state.settings.avatar = m.data.avatar; renderAvatar(); renderStudioScenes();renderWorkspace();}
+      if (m.type === 'character_job') {state.character_cards=[m.data,...(state.character_cards||[]).filter(j=>j.id!==m.data.id)];renderStudioScenes();renderWorkspace();}
       window.dispatchEvent(new CustomEvent('studio-event',{detail:m}));
     };
     stream.onerror = () => {$('studio-status').textContent = '连接中断'; $('studio-detail').textContent = '正在尝试连接本地服务';};

@@ -5,20 +5,33 @@ module.exports=async function checkCharacterCards(){
   const host=()=>frame()?.getElementById('character-videos');
   const result={};
   const initial=await api('/api/state');
-  if(initial.scene_jobs.length)await send('/api/scenes/'+initial.scene_jobs[0].id+'/activate',{});
+  navigate('rules');
+  if(!document.getElementById('allow-chat')||!document.getElementById('save-interaction'))throw Error('Missing chat controls');
+  document.getElementById('allow-chat').checked=true;document.getElementById('save-interaction').click();
+  await wait(async()=>!document.getElementById('save-interaction').disabled&&(await api('/api/state')).settings.interaction.allow_chat,'enable chat setting');
+  document.getElementById('allow-chat').checked=false;document.getElementById('save-interaction').click();
+  await wait(async()=>!document.getElementById('save-interaction').disabled&&!(await api('/api/state')).settings.interaction.allow_chat,'disable chat setting');
+  result.chatSettings=true;
   await refresh();navigate('studio');
   result.legacyNodRemoved=!document.querySelector('[data-scene-action="thanks"]')&&
-    !(initial.scene_jobs.length&&document.querySelector('[data-live-action="thanks"]'));
+    !document.querySelector('#view-avatar,#scene-preview');
   if(!result.legacyNodRemoved)throw Error('Removed legacy nod still has a UI entry');
   const available=(state.character_cards||[]).find(card=>card.assets?.thanks);
   if(!available)throw Error('Expected the real target video card');
-  if(initial.scene_jobs.length){
-    if(document.getElementById('use-video-character').hidden)throw Error('Missing switch from old scene to generated video card');
-    document.getElementById('use-video-character').click();
-  }else{
-    document.getElementById('active-scene').value='character:'+available.id;
-    document.getElementById('active-scene').onchange();
+  const inputs=await api('/api/characters/inputs');
+  const originalAvatar=(await api('/api/state')).settings.avatar;
+  for(const [kind,file,inputId] of [['standard','standard.png','character-standard-upload'],['background','background.jpg','character-background-upload']]){
+    const blob=await (await fetch('/media/characters/'+available.id+'/'+file)).blob();
+    const transfer=new DataTransfer();transfer.items.add(new File([blob],file,{type:blob.type}));
+    const input=document.getElementById(inputId);input.files=transfer.files;input.dispatchEvent(new Event('change'));
+    await wait(()=>!input.disabled,'local '+kind+' upload');
   }
+  const prepared=await api('/api/characters/inputs');
+  if(!prepared.sources.some(source=>source.id==='uploaded')||!prepared.background)throw Error('Local character inputs were not saved');
+  if(JSON.stringify((await api('/api/state')).settings.avatar)!==JSON.stringify(originalAvatar))throw Error('Uploading local inputs replaced active character');
+  result.localInputs=true;
+  document.getElementById('active-scene').value='character:'+available.id;
+  document.getElementById('active-scene').onchange();
   const previewHost=()=>document.getElementById('studio-preview').contentDocument?.getElementById('character-videos');
   await wait(()=>previewHost()?.dataset.characterId===available.id&&previewHost()?.dataset.ready==='true','workbench selected video card preview');
   if(!document.getElementById('studio-actions').textContent.includes('点头答谢'))throw Error('Workbench still shows old action labels');
@@ -50,6 +63,7 @@ module.exports=async function checkCharacterCards(){
   result.actualVoice=true;await wait(()=>host()?.dataset.kind==='idle'&&frame().getElementById('stage-audio').ended,'audio ended idle');
   document.getElementById('character-preview-background').click();
   await wait(()=>frame()?.getElementById('card-background').hidden,'transparent toggle');result.backgroundToggle=true;
+  document.getElementById('character-persona').value='性格温和，说话简洁，喜欢阅读。';
   document.getElementById('character-reviewed').checked=true;document.getElementById('apply-character').click();
   await wait(async()=>{const s=await api('/api/state');return s.settings.avatar.mode==='character'&&s.settings.avatar.character_id===result.originalId;},'apply state');
   await wait(()=>document.getElementById('studio-preview').contentDocument?.getElementById('character-videos')?.dataset.characterId===result.originalId,'studio view updated');
@@ -59,6 +73,9 @@ module.exports=async function checkCharacterCards(){
   await wait(()=>document.querySelectorAll('[data-card-id]').length===result.cardCount+1,'import card UI');
   await wait(()=>host()?.dataset.characterId&&host().dataset.characterId!==result.originalId&&host().dataset.ready==='true','import preview decoded');
   result.importedId=host().dataset.characterId;result.imported=true;
+  const importedProfile=await api('/api/characters/'+result.importedId);
+  if(importedProfile.persona!=='性格温和，说话简洁，喜欢阅读。')throw Error('Persona was lost during role migration');
+  result.personaMigrated=true;
   document.getElementById('character-name').value='迁移角色卡测试';document.getElementById('save-character-name').click();
   await wait(async()=>{const j=await api('/api/characters/'+result.importedId);return j.name==='迁移角色卡测试';},'rename card');
   document.getElementById('character-reviewed').checked=true;document.getElementById('apply-character').click();
@@ -88,7 +105,7 @@ module.exports=async function checkCharacterCards(){
   await wait(()=>studioHost()?.dataset.kind==='thanks','gift nod animation');
   const giftVideo=[...studioHost().querySelectorAll('video')].find(v=>!v.paused&&v.currentSrc.endsWith('/'+result.importedId+'/thanks.webm'));
   const studioDoc=document.getElementById('studio-preview').contentDocument;
-  if(!giftVideo||!studioDoc.getElementById('scene-canvas').hidden)throw Error('Gift used the old renderer instead of this role card video');
+  if(!giftVideo||!!studioDoc.querySelector('canvas'))throw Error('Gift used the old renderer instead of this role card video');
   const giftStart=giftVideo.currentTime;await new Promise(r=>setTimeout(r,350));
   if(giftVideo.currentTime<=giftStart)throw Error('Gift thanks video did not advance');
   result.giftVideoSource=giftVideo.currentSrc;

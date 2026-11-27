@@ -16,6 +16,29 @@ from character_pipeline import PIPELINE_DEFAULTS,PRESETS,REQUIRED_PRESETS,persis
 
 
 class CharacterRouteTests(unittest.TestCase):
+    def test_local_inputs_replace_scene_workshop_without_changing_active_card(self):
+        from character_cards import create_local_card
+        cutout=Image.new('RGBA',(128,192));cutout.paste('white',(40,10,90,180))
+        raw=io.BytesIO();cutout.save(raw,'PNG')
+        old_avatar=copy.deepcopy(self.cfg['avatar'])
+        result=self.client.post('/api/characters/inputs/standard',files={'file':('front.png',raw.getvalue(),'image/png')})
+        self.assertEqual(result.status_code,200,result.text)
+        self.assertEqual(result.json()['selected'],'uploaded')
+        self.assertEqual(self.cfg['avatar'],old_avatar)
+        raw=io.BytesIO();Image.new('RGB',(128,192),'blue').save(raw,'PNG')
+        self.assertEqual(self.client.post('/api/characters/inputs/background',files={'file':('bg.png',raw.getvalue(),'image/png')}).status_code,200)
+        self.assertEqual(self.client.post('/api/characters/inputs/standard',files={'file':('opaque.png',raw.getvalue(),'image/png')}).status_code,422)
+        for kind in REQUIRED_PRESETS:
+            name=('%032x'%len(kind))+'.mp4';(self.root/'references'/name).write_bytes(b'local-source-snapshot')
+            self.cfg['video']['references'][kind]={'file':name,'duration':5}
+        self.cfg['video']['references'].pop('happy',None)
+        with patch('character_cards.media_binary',return_value='ffmpeg'):
+            folder,job=create_local_card(self.root,self.cfg,'新卡','uploaded')
+        with Image.open(folder/'standard.png') as image:self.assertEqual(image.getpixel((0,0))[3],0)
+        self.assertTrue((folder/'background.jpg').is_file())
+        self.assertEqual(set(job['steps']),REQUIRED_PRESETS)
+        self.assertEqual(job['budget_cny'],0)
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name);self.cfg=copy.deepcopy(PIPELINE_DEFAULTS)
@@ -98,6 +121,22 @@ class CharacterRouteTests(unittest.TestCase):
         response=self.client.post('/api/characters/import',files={'file':('bad.zip',output.getvalue(),'application/zip')})
         self.assertEqual(response.status_code,422);self.assertEqual(list((self.root/'characters').iterdir()),[])
 
+    def test_card_persona_validation_and_no_imported_chat_permission(self):
+        folder,job=self.job();job['persona']='性格温和';persist(folder,job)
+        raw=self.client.get('/api/characters/'+folder.name+'/package').content
+        for persona in (None,{},'x'*2001):
+            output=io.BytesIO()
+            with zipfile.ZipFile(io.BytesIO(raw)) as source,zipfile.ZipFile(output,'w') as target:
+                for name in source.namelist():
+                    value=source.read(name)
+                    if name=='character.json':
+                        manifest=json.loads(value);manifest['persona']=persona;value=json.dumps(manifest).encode()
+                    target.writestr(name,value)
+            response=self.client.post('/api/characters/import',files={'file':('bad-persona.zip',output.getvalue())})
+            self.assertEqual(response.status_code,422)
+            self.assertEqual(len(list((self.root/'characters').iterdir())),1)
+        self.assertNotIn('interaction',self.cfg)
+
     def test_transparent_card_roundtrip_apply_and_rename_without_emotion(self):
         folder,job=self.job();job['version']=2;job['assets'].pop('happy')
         for kind,asset in job['assets'].items():
@@ -107,8 +146,9 @@ class CharacterRouteTests(unittest.TestCase):
         self.client.post('/api/characters/'+folder.name+'/review',json={'accepted':True})
         self.assertEqual(self.client.post('/api/characters/'+folder.name+'/activate').status_code,200)
         self.assertEqual(self.cfg['avatar']['character_id'],folder.name)
-        self.client.patch('/api/characters/'+folder.name,json={'name':'新角色卡','background_visible':False})
+        self.client.patch('/api/characters/'+folder.name,json={'name':'新角色卡','persona':'温和，喜欢读书。','background_visible':False})
         self.assertEqual(self.cfg['avatar']['name'],'新角色卡')
+        self.assertEqual(self.cfg['avatar']['persona'],'温和，喜欢读书。')
         archive=self.client.get('/api/characters/'+folder.name+'/package')
         with zipfile.ZipFile(io.BytesIO(archive.content)) as z:
             self.assertIn('idle.webm',z.namelist());self.assertIn('background.jpg',z.namelist())
@@ -118,6 +158,9 @@ class CharacterRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.text);imported=response.json()
         self.assertNotEqual(imported['id'],folder.name);self.assertFalse(imported['accepted'])
         self.assertEqual(imported['assets']['idle']['file'],'idle.webm');self.assertFalse(imported['background_visible'])
+        self.assertEqual(imported['persona'],'温和，喜欢读书。')
+        for invalid in (3,'x'*2001):
+            self.assertEqual(self.client.patch('/api/characters/'+folder.name,json={'persona':invalid}).status_code,422)
 
 
 if __name__=='__main__':unittest.main()

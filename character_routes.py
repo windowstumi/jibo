@@ -1,6 +1,5 @@
 """Character workshop endpoints, isolated from the existing on-air renderer."""
 import asyncio
-import json
 from pathlib import Path
 import re
 import time
@@ -14,7 +13,7 @@ from PIL import Image, ImageOps
 
 from character_pipeline import (PRESETS, REQUIRED_PRESETS, PIPELINE_DEFAULTS, charges, pipeline_settings, quote,
     persist, read_job, run_character, probe_video, valid_url, provider_binding, ffprobe_binary,media_binary)
-from character_cards import create_local_card,assemble_local_card,validate_card,export_card,import_card,MAX_CHARACTER_BYTES
+from character_cards import create_local_card,assemble_local_card,validate_card,export_card,import_card,MAX_CHARACTER_BYTES,image_sources,save_input
 
 
 
@@ -140,16 +139,33 @@ def register_characters(app,data,get_settings,put_settings,emit,on_apply=None):
 
     class CardName(BaseModel):
         name:str=Field(min_length=1,max_length=60)
+        persona:str=Field(default='',max_length=2000,strict=True)
+        source_id:str=Field(default='',max_length=80)
+
+    @app.get('/api/characters/inputs')
+    async def inputs():return image_sources(data,get_settings())
+
+    @app.post('/api/characters/inputs/{kind}')
+    async def upload_input(kind:str,file:UploadFile=File(...)):
+        if kind not in ('standard','background'):raise HTTPException(422,'未知素材类型')
+        try:
+            path=save_input(data,kind,await file.read(10_000_001))
+        except (ValueError,OSError) as exc:raise HTTPException(422,str(exc))
+        settings=get_settings();prepared=settings.setdefault('character_inputs',{})
+        prepared[kind]=path
+        if kind=='standard':prepared['source_id']='uploaded'
+        put_settings(settings);return image_sources(data,settings)
 
     class CardEdit(BaseModel):
         name:str|None=Field(default=None,min_length=1,max_length=60)
+        persona:str|None=Field(default=None,max_length=2000,strict=True)
         background_visible:bool|None=None
 
     @app.post('/api/characters/from-existing')
     async def from_existing(body:CardName):
         if tasks:raise HTTPException(409,'已有角色任务正在处理中')
         if not body.name.strip():raise HTTPException(422,'角色名称不能为空')
-        try:folder,job=await asyncio.to_thread(create_local_card,data,get_settings(),body.name.strip())
+        try:folder,job=await asyncio.to_thread(create_local_card,data,get_settings(),body.name.strip(),body.source_id,body.persona)
         except (ValueError,OSError) as exc:raise HTTPException(422,str(exc))
         start(folder,local=True);return job
 
@@ -164,6 +180,7 @@ def register_characters(app,data,get_settings,put_settings,emit,on_apply=None):
 
     class Build(BaseModel):
         name:str=Field(default='我的主播',min_length=1,max_length=60)
+        persona:str=Field(default='',max_length=2000,strict=True)
         quote_fingerprint:str
         budget_cny:float=Field(gt=0,le=1000)
         confirmed:bool=False
@@ -181,7 +198,7 @@ def register_characters(app,data,get_settings,put_settings,emit,on_apply=None):
         ident=uuid.uuid4().hex;folder=root/ident;folder.mkdir()
         with Image.open(source) as im:ImageOps.exif_transpose(im).convert('RGB').save(folder/'reference.png')
         steps={r['kind']:{'status':'waiting','estimated_cny':r['cost_cny'],**({'rate_cny':r['rate_cny']} if 'rate_cny' in r else {})} for r in estimate['rows']}
-        job={'format':'jibo-character','version':1,'id':ident,'name':body.name,'created':time.time(),'status':'running',
+        job={'format':'jibo-character','version':1,'id':ident,'name':body.name,'persona':body.persona.strip(),'created':time.time(),'status':'running',
              'steps':steps,'quote':estimate,'budget_cny':body.budget_cny,'assets':{},'references':cfg['video']['references'],
              'providers':{'vision':cfg['vision']['model'],'video':cfg['video']['model'],'mode':cfg['video']['mode']},
              'provider_binding':provider_binding(settings),'accepted':False}
@@ -198,12 +215,13 @@ def register_characters(app,data,get_settings,put_settings,emit,on_apply=None):
     async def rename_character(ident:str,body:CardEdit):
         folder=directory(ident);job=read_job(folder)
         if body.name is not None:job['name']=body.name.strip()
+        if body.persona is not None:job['persona']=body.persona.strip()
         if body.background_visible is not None:job['background_visible']=body.background_visible
         if not job['name']:raise HTTPException(422,'角色名称不能为空')
         persist(folder,job);emit('character_job',job)
         settings=get_settings()
         if settings['avatar'].get('character_id')==ident and settings['avatar'].get('mode')=='character':
-            settings['avatar']['name']=job['name'];put_settings(settings);emit('settings',{'avatar':settings['avatar'],'title':settings.get('title','')})
+            settings['avatar'].update(name=job['name'],persona=job.get('persona',''));put_settings(settings);emit('settings',{'avatar':settings['avatar'],'title':settings.get('title','')})
         return job
 
     @app.post('/api/characters/{ident}/activate')
@@ -212,7 +230,7 @@ def register_characters(app,data,get_settings,put_settings,emit,on_apply=None):
         try:validate_card(folder,job,accepted=True)
         except ValueError as exc:raise HTTPException(409,str(exc))
         if on_apply:await on_apply()
-        settings=get_settings();settings['avatar'].update(mode='character',character_id=ident,name=job['name'],image=f'/media/characters/{ident}/standard.png')
+        settings=get_settings();settings['avatar'].update(mode='character',character_id=ident,name=job['name'],persona=job.get('persona',''),image=f'/media/characters/{ident}/standard.png')
         put_settings(settings);emit('settings',{'avatar':settings['avatar'],'title':settings.get('title','')})
         return {'ok':True,'avatar':settings['avatar']}
 

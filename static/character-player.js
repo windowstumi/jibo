@@ -46,8 +46,8 @@ class CharacterPlayer {
     this.gestureActive=asset.loop===false;
     video.onended=()=>{
       if(video!==this.front||video.loop)return;
-      this.gestureActive=false;const done=this.finishGesture;this.finishGesture=null;done?.(true);
-      this.show(this.speaking?(this.speechKind||'talk'):'idle').catch(error=>this.onError(error.message));
+      this.gestureActive=false;const done=this.finishGesture;this.finishGesture=null;
+      this.show(this.speaking?(this.speechKind||'talk'):'idle').then(()=>done?.(true)).catch(error=>{done?.(false);this.onError(error.message);});
     };
     video.onerror=()=>{if(video===this.front)this.onError('动作视频播放中断，请检查角色素材');};
     this.host.dataset.kind=kind;this.host.dataset.ready='true';this.host.dataset.fallback=String(kind!==requested);
@@ -66,10 +66,13 @@ class CharacterPlayer {
   async beginSpeech(gesture,emotion='talk'){
     this.speaking=true;this.speechKind=emotion;
     if(gesture)return this.gesture(gesture,false);
-    if(this.gestureActive)return;
     return this.show(emotion);
   }
-  endSpeech(){this.speaking=false;if(!this.gestureActive)return this.show('idle');return Promise.resolve();}
+  endSpeech(){
+    this.speaking=false;
+    if(!this.gestureActive)return this.show('idle');
+    return new Promise(resolve=>{this.finishGesture?.(false);this.finishGesture=resolve;});
+  }
   async reset(){this.speaking=false;this.gestureActive=false;return this.card?this.show('idle'):null;}
   clear(){
     this.serial++;this.cancelLoad?.();this.cancelLoad=null;

@@ -5,6 +5,7 @@
   "upstream_commit": "6d51ffceafbf240145619af4c92408a6e54b7924",
   "engine": {
     "name": "GPT-SoVITS source",
+    "headers": {"Accept": "application/vnd.github+json"},
     "size": 6890791,
     "sha256": "f1117d69f1c88f373bd4d1982bcdd92b12e780af9564104ffcf2ec1c3b921c1e",
     "urls": [

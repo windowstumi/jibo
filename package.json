@@ -1,13 +1,13 @@
 {
   "name": "jibo-studio",
-  "version": "0.7.0",
+  "version": "0.9.0",
   "description": "极播：二维虚拟主播客户端",
   "author": "Jibo Studio",
   "private": true,
   "main": "desktop/main.cjs",
   "scripts": {
     "start": "electron .",
-    "test:desktop": "node --test tests/desktop.test.cjs tests/action-player.test.cjs tests/obs-client.test.cjs tests/obs-rehearsal.test.cjs tests/character-player.test.cjs",
+    "test:desktop": "node --test tests/desktop.test.cjs tests/obs-client.test.cjs tests/obs-rehearsal.test.cjs tests/character-player.test.cjs tests/stage.test.cjs",
     "build:backend": "python scripts/build_backend.py",
     "pack": "electron-builder --dir",
     "dist:win": "electron-builder --win portable --x64",
@@ -38,8 +38,20 @@
           "**/*"
         ]
       },
-      {"from": "build/local-tts", "to": "local-tts", "filter": ["**/*"]},
-      {"from": "licenses", "to": "licenses", "filter": ["**/*"]}
+      {
+        "from": "build/local-tts",
+        "to": "local-tts",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "licenses",
+        "to": "licenses",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "artifactName": "Jibo-Studio-${version}-${os}-${arch}.${ext}",
     "win": {

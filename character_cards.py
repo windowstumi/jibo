@@ -11,9 +11,56 @@ import zipfile
 
 from PIL import Image
 from character_pipeline import PRESETS,REQUIRED_PRESETS,media_binary,probe_video,persist,read_job,transparent_video
-from scene_model import video_input_image
+from character_images import video_input_image,load_image,remove_chroma
 
 MAX_CHARACTER_BYTES=300_000_000
+MAX_PROJECT_BYTES=100_000_000
+
+
+def character_persona(value):
+    if not isinstance(value,str) or len(value)>2000:raise ValueError('角色设定须为不超过2000字的文字')
+    return value.strip()
+
+
+def save_input(data,kind,raw):
+    if kind not in ('standard','background'):raise ValueError('未知素材类型')
+    if len(raw)>10_000_000:raise ValueError('图片不能超过10MB')
+    image=load_image(raw)
+    if kind=='standard':image,_=remove_chroma(image)
+    else:image=image.convert('RGB')
+    path=data/'images'/(uuid.uuid4().hex+('.png' if kind=='standard' else '.jpg'))
+    path.parent.mkdir(exist_ok=True);image.save(path)
+    return '/media/images/'+path.name
+
+
+def image_sources(data,settings):
+    """Offer existing cutouts as inputs, including images from retired scene data."""
+    sources=[]
+    for folder in sorted((data/'characters').glob('*')):
+        if re.fullmatch(r'[a-f0-9]{32}',folder.name) and (folder/'standard.png').is_file():
+            job=read_job(folder)
+            sources.append({'id':'character:'+folder.name,'name':job['name'],'image':f'/media/characters/{folder.name}/standard.png',
+                            'background':f'/media/characters/{folder.name}/background.jpg' if (folder/'background.jpg').is_file() else None})
+    for folder in sorted((data/'scenes').glob('*')):
+        if re.fullmatch(r'[a-f0-9]{32}',folder.name) and (folder/'neutral.png').is_file():
+            sources.append({'id':'scene:'+folder.name,'name':'历史人物图 · '+folder.name[:8],
+                            'image':f'/media/scenes/{folder.name}/neutral.png',
+                            'background':f'/media/scenes/{folder.name}/background.jpg' if (folder/'background.jpg').is_file() else None})
+    inputs=settings.get('character_inputs',{})
+    standard=inputs.get('standard','')
+    if re.fullmatch(r'/media/images/[a-f0-9]{32}\.png',standard) and (data/'images'/Path(standard).name).is_file():
+        sources.insert(0,{'id':'uploaded','name':'已上传的透明人物图','image':standard,'background':None})
+    preferred=inputs.get('source_id') or ('character:'+settings['avatar'].get('character_id','') if settings['avatar'].get('mode')=='character' else 'scene:'+settings['avatar'].get('scene_id',''))
+    selected=preferred if any(s['id']==preferred for s in sources) else sources[0]['id'] if sources else ''
+    return {'sources':sources,'selected':selected,'background':inputs.get('background')}
+
+
+def local_source(data,settings,source_id=''):
+    available=image_sources(data,settings)
+    source=next((s for s in available['sources'] if s['id']==(source_id or available['selected'])),None)
+    if not source:raise ValueError('请先在角色制作上传透明正面人物图或选择历史人物图')
+    background=available['background'] or source['background']
+    return data/source['image'].removeprefix('/media/'), data/background.removeprefix('/media/') if background else None
 
 
 def asset_filename(kind,asset):
@@ -40,6 +87,7 @@ def export_card(folder,job):
     if (folder/'background.jpg').is_file():files.append('background.jpg')
     if sum((folder/name).stat().st_size for name in files)>MAX_CHARACTER_BYTES-100_000:raise ValueError('角色卡超过300MB，请复制完整数据目录迁移')
     manifest={k:job[k] for k in ('format','version','id','name')}
+    manifest['persona']=character_persona(job.get('persona',''))
     manifest.update(assets=assets,providers={k:v for k,v in job.get('providers',{}).items() if k in ('vision','video','mode')},
                     costs=job.get('costs',{}),background='background.jpg' if 'background.jpg' in files else None,
                     background_visible=job.get('background_visible',True))
@@ -64,6 +112,7 @@ def import_card(raw,root):
             if not isinstance(manifest,dict) or manifest.get('format')!='jibo-character' or manifest.get('version') not in (1,2):raise ValueError('不支持的角色包版本')
             name=manifest.get('name')
             if not isinstance(name,str) or not 1<=len(name.strip())<=60:raise ValueError('角色名称无效')
+            persona=character_persona(manifest.get('persona',''))
             folder=root/uuid.uuid4().hex;folder.mkdir(parents=True)
             with Image.open(io.BytesIO(archive.read('standard.png'))) as image:image.convert('RGBA').save(folder/'standard.png')
             assets={}
@@ -77,7 +126,7 @@ def import_card(raw,root):
                 assets[kind]=preset|probe_video(path)|{'file':path.name,'background':'transparent' if path.suffix=='.webm' else 'opaque'}
             if 'background.jpg' in names:
                 with Image.open(io.BytesIO(archive.read('background.jpg'))) as image:image.convert('RGB').save(folder/'background.jpg')
-        job={'format':'jibo-character','version':manifest['version'],'id':folder.name,'name':name.strip(),'created':time.time(),
+        job={'format':'jibo-character','version':manifest['version'],'id':folder.name,'name':name.strip(),'persona':persona,'created':time.time(),
              'status':'review','accepted':False,'imported':True,'assets':assets,'steps':{},'budget_cny':0,'providers':{},
              'background':'background.jpg' if (folder/'background.jpg').is_file() else None,'background_visible':manifest.get('background_visible',True) is not False,
              'costs':{'estimated_completed_cny':0,'uncertain_reserved_cny':0,'note':'导入已有素材，本次不调用生成服务。'}}
@@ -87,11 +136,9 @@ def import_card(raw,root):
         raise
 
 
-def create_local_card(data,settings,name):
+def create_local_card(data,settings,name,source_id='',persona=''):
     """Snapshot local finished clips. Reference actors/public URLs must not be packaged as a new character."""
-    scene_id=settings.get('avatar',{}).get('scene_id','')
-    if not re.fullmatch(r'[a-f0-9]{32}',scene_id or ''):raise ValueError('请先选择已分离的正面角色场景')
-    scene=data/'scenes'/scene_id;standard=scene/'neutral.png'
+    standard,background=local_source(data,settings,source_id)
     with Image.open(standard) as image:
         image=image.convert('RGBA');video_input_image(image)  # Reject opaque original posters.
     refs=settings.get('video',{}).get('references',{});inputs={}
@@ -109,11 +156,10 @@ def create_local_card(data,settings,name):
     try:
         image.save(folder/'standard.png')
         for kind,source in inputs.items():shutil.copy2(source,folder/('input-'+kind+'.mp4'))
-        background=scene/'background.jpg'
-        if background.is_file():shutil.copy2(background,folder/'background.jpg')
-        job={'format':'jibo-character','version':2,'id':folder.name,'name':name,'created':time.time(),
+        if background and background.is_file():shutil.copy2(background,folder/'background.jpg')
+        job={'format':'jibo-character','version':2,'id':folder.name,'name':name,'persona':character_persona(persona),'created':time.time(),
              'status':'assembling','local':True,'accepted':False,'assets':{},'budget_cny':0,'providers':{},
-             'source_scene_id':scene_id,'background':'background.jpg' if background.is_file() else None,
+             'background':'background.jpg' if (folder/'background.jpg').is_file() else None,
              'steps':{kind:{'status':'waiting','estimated_cny':0} for kind in inputs},
              'costs':{'estimated_completed_cny':0,'uncertain_reserved_cny':0,'note':'本地整理已有视频，不调用生成服务。'}}
         persist(folder,job);return folder,job

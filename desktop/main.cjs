@@ -1,4 +1,4 @@
-const {app, BrowserWindow, Menu, ipcMain, dialog, shell, clipboard, session} = require('electron');
+const {app, BrowserWindow, Menu, ipcMain, dialog, shell, clipboard, session, nativeTheme} = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -13,6 +13,7 @@ let backend, mainWindow, stageWindow, origin, dataRoot, token, log, stopping = f
 const smokeFile = process.env.YINGBO_SMOKE_REPORT;
 const legacyProfile=path.join(app.getPath('appData'),'Yingbo Studio');
 app.setName('极播');
+nativeTheme.themeSource='dark';
 if(fs.existsSync(legacyProfile))app.setPath('userData',legacyProfile);
 if(smokeFile) app.setPath('userData',path.join(path.dirname(smokeFile),'electron-profile'));
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -127,7 +128,7 @@ async function openStage() {
 }
 
 async function createMainWindow() {
-  mainWindow = new BrowserWindow({title:'极播 · 虚拟人直播客户端',width:1360,height:920,minWidth:950,minHeight:680,backgroundColor:'#f6f7f9',show:false,
+  mainWindow = new BrowserWindow({title:'极播 · 虚拟人直播客户端',width:1360,height:920,minWidth:950,minHeight:680,backgroundColor:'#0a101b',show:false,
     webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,backgroundThrottling:false}});
   secureWindow(mainWindow);
   mainWindow.on('ready-to-show',()=>mainWindow?.show());
@@ -160,6 +161,10 @@ function registerIpc() {
     return obs.present(kind);
   });
   handler('desktop:obs-speaking',value=>{
+    if(value&&typeof value==='object'){
+      if(typeof value.speaking!=='boolean'||!['talk','happy'].includes(value.emotion))throw Error('说话状态或情绪无效');
+      return obs.setSpeaking(value.speaking,value.emotion);
+    }
     if(typeof value!=='boolean')throw Error('说话状态无效');
     return obs.setSpeaking(value);
   });
@@ -183,6 +188,36 @@ async function smokeTest() {
   await new Promise(r=>setTimeout(r,800));
   const state = await (await api('/api/state')).json();
   const report = {packaged:app.isPackaged,platform:process.platform,main:await inspect(mainWindow),health:await(await api('/api/health')).json(),dataRoot};
+  const workspaceCheck=require('./workspace-check.cjs');
+  report.workspace=await mainWindow.webContents.executeJavaScript(`(${workspaceCheck.toString()})()`);
+  await mainWindow.webContents.executeJavaScript(`navigate('home')`);
+  await new Promise(r=>setTimeout(r,180));
+  fs.writeFileSync(path.join(path.dirname(smokeFile),'workspace-home.png'),(await mainWindow.webContents.capturePage()).toPNG());
+  await mainWindow.webContents.executeJavaScript(`workspaceRoute('settings','voice')`);
+  await new Promise(r=>setTimeout(r,180));
+  fs.writeFileSync(path.join(path.dirname(smokeFile),'workspace-voice.png'),(await mainWindow.webContents.capturePage()).toPNG());
+  await mainWindow.webContents.executeJavaScript(`workspaceRoute('settings','generation')`);
+  await new Promise(r=>setTimeout(r,180));
+  fs.writeFileSync(path.join(path.dirname(smokeFile),'workspace-generation.png'),(await mainWindow.webContents.capturePage()).toPNG());
+  await mainWindow.webContents.executeJavaScript(`selectSettingsGroup('voice');navigate('home')`);
+  const priorSize=mainWindow.getSize();mainWindow.setSize(1000,780);
+  await new Promise(r=>setTimeout(r,200));
+  report.workspace.compact=await mainWindow.webContents.executeJavaScript(`(()=>{
+    const routes=['home','studio','characters','knowledge','rules','settings'];
+    const pages=routes.map(view=>{navigate(view);return {view,fits:document.documentElement.scrollWidth<=innerWidth};});
+    workspaceRoute('settings','generation');pages.push({view:'generation',fits:document.documentElement.scrollWidth<=innerWidth});
+    return {width:innerWidth,pages};
+  })()`);
+  await new Promise(r=>setTimeout(r,180));
+  fs.writeFileSync(path.join(path.dirname(smokeFile),'workspace-compact.png'),(await mainWindow.webContents.capturePage()).toPNG());
+  mainWindow.setSize(...priorSize);
+  await mainWindow.webContents.executeJavaScript(`selectSettingsGroup('voice');navigate('home')`);
+  if(process.env.JIBO_SMOKE_INTERACTION==='1'){
+    const check=require('./interaction-check.cjs');
+    report.interaction=await mainWindow.webContents.executeJavaScript(`(${check.toString()})()`);
+    fs.writeFileSync(path.join(path.dirname(smokeFile),'interaction.png'),(await mainWindow.webContents.capturePage()).toPNG());
+    fs.writeFileSync(smokeFile,JSON.stringify(report,null,2));app.quit();return;
+  }
   if(process.env.JIBO_SMOKE_LOCAL_TTS_ACTIVE==='1'){
     const check=require('./local-tts-check.cjs');
     report.localTts=await mainWindow.webContents.executeJavaScript(`(${check.toString()})()`);
@@ -240,46 +275,11 @@ async function smokeTest() {
     await api('/api/studio/stop',{method:'POST'});stageWindow.close();
     fs.writeFileSync(smokeFile,JSON.stringify(report,null,2));app.quit();return;
   }
-  if(process.env.YINGBO_SMOKE_SCENE){
-    const job=state.scene_jobs.find(j=>j.status==='review'||j.status==='accepted');
-    if(!job)throw Error('Smoke test scene was not loaded');
-    await api('/api/scenes/'+job.id+'/activate',{method:'POST'});
-    const exported=await(await api('/api/export')).arrayBuffer();
-    const form=new FormData();form.append('file',new Blob([exported],{type:'application/zip'}),'scene.zip');
-    await api('/api/import',{method:'POST',body:form});
-    report.sceneMigration=true;
-  } else {
-    const blocked=await fetch(origin+'/api/studio/start',{method:'POST',headers:{'X-Yingbo-Token':token,'Content-Type':'application/json'},body:JSON.stringify({product_id:state.products[0].id})});
-    report.noSceneBlocked=blocked.status===409;
-    report.noLegacyRenderer=await mainWindow.webContents.executeJavaScript(`!document.querySelector('#test-mouth,#calibration-form,.mouth-demo')`);
-    fs.writeFileSync(smokeFile,JSON.stringify(report,null,2));app.quit();return;
-  }
-  await api('/api/studio/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({product_id:state.products[0].id})});
-  await mainWindow.webContents.executeJavaScript(`document.getElementById('studio-preview').contentWindow.postMessage({type:'activate-audio'},location.origin)`);
-  await new Promise(r=>setTimeout(r,1500));
-  report.workbench=await mainWindow.webContents.executeJavaScript(`(()=>{const d=document.getElementById('studio-preview').contentDocument;return {sceneReady:d.getElementById('scene-canvas').dataset.ready,legacyMouth:!!d.getElementById('mouth'),selector:!!document.getElementById('active-scene')};})()`);
-  await openStage();
-  await new Promise(r=>setTimeout(r,2500));
-  report.stage = await stageWindow.webContents.executeJavaScript(`({title:document.title,role:new URLSearchParams(location.search).get('mode'),transparent:getComputedStyle(document.body).backgroundColor,independentMouthElements:document.querySelectorAll('#mouth,.mouth,.mouth-demo').length,subtitle:document.getElementById('subtitle').innerText,audioButtonHidden:document.getElementById('enable-audio').hidden,scene:{hidden:document.getElementById('scene-canvas').hidden,...document.getElementById('scene-canvas').dataset}})`);
-  const active=(await(await api('/api/state')).json()).settings.avatar.scene_id;
-  const loaded=await(await api('/api/scenes/'+active)).json();
-  const check=require('./scene-check.cjs');
-  report.pixels=await stageWindow.webContents.executeJavaScript(`(${check.toString()})(${JSON.stringify(loaded.model)},${JSON.stringify(origin+loaded.base_url)})`);
-  report.runtime = (await(await api('/api/state')).json()).runtime;
-  if(process.env.YINGBO_SMOKE_CLIP){
-    const checkActions=require('./action-check.cjs');
-    const clip=fs.readFileSync(process.env.YINGBO_SMOKE_CLIP).toString('base64');
-    report.clipInspection=await mainWindow.webContents.executeJavaScript(`(async()=>{const bytes=Uint8Array.from(atob(${JSON.stringify(clip)}),c=>c.charCodeAt(0));const info=await inspectActionFile(new File([bytes],'fixture.webm',{type:'video/webm'}));return {duration:info.duration,width:info.width,height:info.height,first:info.first.size,last:info.last.size};})()`);
-    report.actions=await stageWindow.webContents.executeJavaScript(`(${checkActions.toString()})(${JSON.stringify(clip)},${JSON.stringify(active)})`);
-    await mainWindow.webContents.executeJavaScript(`(async()=>{navigate('avatar');await loadScene(${JSON.stringify(active)});document.querySelector('.action-library').scrollIntoView({block:'center'});})()`);
-    await new Promise(resolve=>setTimeout(resolve,400));
-    report.actionScreenshot=path.join(path.dirname(smokeFile),'actions-ui.png');
-    fs.writeFileSync(report.actionScreenshot,(await mainWindow.webContents.capturePage()).toPNG());
-  }
-  await api('/api/studio/stop',{method:'POST'});
-  stageWindow.close();
-  fs.writeFileSync(smokeFile,JSON.stringify(report,null,2));
-  app.quit();
+  const blocked=await fetch(origin+'/api/studio/start',{method:'POST',headers:{'X-Yingbo-Token':token,'Content-Type':'application/json'},body:JSON.stringify({product_id:state.products[0].id})});
+  report.noSceneBlocked=blocked.status===409;
+  report.noLegacyRenderer=await mainWindow.webContents.executeJavaScript(`!document.querySelector('#view-avatar,#scene-preview,#calibration-form,.mouth-demo') && !document.getElementById('studio-preview').contentDocument.querySelector('canvas')`);
+  fs.writeFileSync(smokeFile,JSON.stringify(report,null,2));app.quit();
+
 }
 
 async function shutdown() {

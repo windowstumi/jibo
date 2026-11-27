@@ -19,6 +19,7 @@ function setSpeechProgress(element,progress){
 }
 function renderLocalSpeech(status){
   localSpeechStatus=status;
+  if(typeof renderWorkspace==='function')renderWorkspace(status);
   const active=['installing','loading','warming'].includes(status.phase);
   let message=status.error||status.message;
   if(status.total_bytes){
@@ -33,7 +34,7 @@ function renderLocalSpeech(status){
   $('local-tts-load').disabled=active||!status.installed||!status.supported;
   $('local-tts-test').disabled=status.phase!=='ready'||status.loaded_voice!==$('local-tts-voice').value;
   const select=$('local-tts-voice'),previous=select.value;
-  const voices=status.voices.length?status.voices:[{id:'cao',name:'默认主播音色（首次安装后可用）'}];
+  const voices=status.voices.length?status.voices:[{id:'cao',name:'尚未导入音色包'}];
   const signature=JSON.stringify(voices);
   if(select.dataset.voices!==signature){
     select.replaceChildren(...voices.map(voice=>new Option(voice.name,voice.id)));

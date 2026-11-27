@@ -38,7 +38,10 @@ class ReferenceSampleTests(unittest.TestCase):
             import io
             with Image.open(io.BytesIO(transparent)) as png:self.assertEqual(png.getpixel((0,0))[3],0)
             with Image.open(io.BytesIO(encoded)) as png:self.assertEqual(png.getpixel((0,0)),(0,255,0))
-            with self.assertRaises(ValueError):samples.prepared_image(root,{'avatar':{'original':'/media/images/reference.png'}})
+            # Existing cutouts are available even when the old scene is no longer active.
+            self.assertEqual(samples.prepared_image(root,{'avatar':{'original':'/media/images/reference.png'}})[0],source)
+            with tempfile.TemporaryDirectory() as empty:
+                with self.assertRaises(ValueError):samples.prepared_image(Path(empty),{'avatar':{}})
             with self.assertRaises(ValueError):samples.video_input_image(Image.new('RGB',(256,256),'white'))
             with closing(sqlite3.connect(root/'studio.sqlite3')) as db, db:
                 db.execute('CREATE TABLE kv (key TEXT,value TEXT)');db.execute('INSERT INTO kv VALUES (?,?)',('settings',json.dumps(cfg)))

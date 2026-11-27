@@ -23,7 +23,7 @@ async function applyCharacter(){
   if(!characterJob)throw Error('请先选择角色卡');
   const reviewed=characterJob.accepted||$('character-reviewed').checked;
   if(!reviewed)throw Error('请先检查预览和语音，并勾选确认');
-  characterJob=await send('/api/characters/'+characterJob.id,{background_visible:characterJob.background_visible!==false},'PATCH');
+  characterJob=await send('/api/characters/'+characterJob.id,{name:$('character-name').value.trim(),persona:$('character-persona').value.trim(),background_visible:characterJob.background_visible!==false},'PATCH');
   if(!characterJob.accepted){
     renderCharacter(await send('/api/characters/'+characterJob.id+'/review',{accepted:true}));
   }
@@ -38,7 +38,7 @@ async function refreshCharacterQuote(){
   characterQuote=await api('/api/characters/quote');
   $('character-quote').innerHTML=`<strong>单次制作约 ¥${characterQuote.total_cny.toFixed(2)}</strong> · 含视频重做预留约 ¥${characterQuote.with_retry_allowance_cny.toFixed(2)}<p>${esc(characterQuote.note)}</p>`+
     '<table><tbody>'+characterQuote.rows.map(r=>`<tr><td>${esc(r.label)}</td><td>${r.seconds?esc(r.seconds)+'秒 × ¥'+r.rate_cny+'/秒':'一次'}</td><td>¥${r.cost_cny.toFixed(2)}</td></tr>`).join('')+'</tbody></table>'+
-    (characterQuote.missing.length?'<p class="scene-quality-warning">首次配置未完成：'+esc(characterQuote.missing.join('、'))+'</p>':'<p>基础动作已配置，可提交任务。情绪说话选填，缺少时使用平静说话。</p>');
+    (characterQuote.missing.length?'<p class="scene-quality-warning">使用云端制作前，还需配置：'+esc(characterQuote.missing.join('、'))+'</p>':'<p>基础动作已配置，可提交任务。情绪说话选填，缺少时使用平静说话。</p>');
   $('build-character').disabled=characterQuote.missing.length>0||characterJobs.some(j=>j.status==='running');
 }
 async function loadCharacterConfig(){
@@ -84,7 +84,7 @@ $('character-config').onsubmit=event=>{
     config.pricing=Object.fromEntries(Object.entries(priceInputs).map(([key,id])=>[key,Number($(id).value)]));
     config.obs={url:$('obs-url').value.trim(),password:$('obs-password').value};
     await send('/api/characters/config',config,'PUT');await loadCharacterConfig();await refreshCharacterQuote();
-    $('character-config-status').textContent='配置已保存，密钥不会回显。';toast('首次配置已保存');
+    $('character-config-status').textContent='生成与 OBS 配置已保存，密钥不会回显。';toast('生成与 OBS 配置已保存');
   });
 };
 $('character-source').onchange=async()=>{
@@ -103,9 +103,10 @@ async function refreshCharacters(preferred){
   $('character-product').innerHTML=products.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
   if(products.some(p=>p.id===selected))$('character-product').value=selected;
   renderCharacterCards();
+  if(typeof renderCharacterInputs==='function')api('/api/characters/inputs').then(renderCharacterInputs).catch(error=>toast(error.message,true));
 }
 function renderCharacter(job){
-  if(characterJob?.id!==job.id)$('character-name').value=job.name;
+  if(characterJob?.id!==job.id){$('character-name').value=job.name;$('character-persona').value=job.persona||'';}
   characterJob=job;
   previewMessage({type:'character-title',name:job.name});
   const costs=job.costs||{};
@@ -132,22 +133,22 @@ function renderCharacter(job){
   }
 }
 $('create-existing-character').onclick=()=>busy($('create-existing-character'),'本地整理中…',async()=>{
-  const job=await send('/api/characters/from-existing',{name:$('character-name').value.trim()||'我的极播主播'});
+  const job=await send('/api/characters/from-existing',{name:$('character-name').value.trim()||'我的极播主播',persona:$('character-persona').value.trim(),source_id:$('character-input-source').value});
   renderCharacter(job);await refreshCharacters(job.id);toast('正在本地打包现有视频，不调用生成服务');
 });
 $('save-character-name').onclick=()=>busy($('save-character-name'),'保存中…',async()=>{
   if(!characterJob)throw Error('请先选择角色卡');
-  renderCharacter(await send('/api/characters/'+characterJob.id,{name:$('character-name').value.trim()},'PATCH'));
-  await refreshCharacters(characterJob.id);await refresh();toast('角色卡名称已保存');
+  renderCharacter(await send('/api/characters/'+characterJob.id,{name:$('character-name').value.trim(),persona:$('character-persona').value.trim()},'PATCH'));
+  await refreshCharacters(characterJob.id);await refresh();toast('角色名称与设定已保存');
 });
 $('apply-character').onclick=()=>busy($('apply-character'),'应用中…',applyCharacter);
 $('character-select').onchange=()=>selectCharacter($('character-select').value).catch(error=>toast(error.message,true));
 $('character-preview-actions').innerHTML=Object.entries(characterLabels).map(([kind,label])=>`<button class="button secondary" data-preview-kind="${kind}">${label}</button>`).join('');
-document.querySelectorAll('[data-preview-kind]').forEach(button=>button.onclick=()=>previewMessage({type:'scene-action',action:button.dataset.previewKind}));
+document.querySelectorAll('[data-preview-kind]').forEach(button=>button.onclick=()=>previewMessage({type:'character-action',action:button.dataset.previewKind}));
 $('character-preview-background').onclick=()=>{
   if(!characterJob)return;
   characterJob.background_visible=characterJob.background_visible===false;
-  previewMessage({type:'scene-background'});
+  previewMessage({type:'character-background'});
 };
 $('stop-character-preview').onclick=()=>previewMessage({type:'stop-preview'});
 window.addEventListener('message',event=>{
@@ -160,7 +161,7 @@ $('build-character').onclick=()=>busy($('build-character'),'提交中…',async(
   await refreshCharacterQuote();
   if(characterQuote.missing.length)throw Error('请先完成服务和参考表演配置');
   if(!confirm(`预计单次 ¥${characterQuote.total_cny.toFixed(2)}，含重做预留预算 ¥${characterQuote.with_retry_allowance_cny.toFixed(2)}。将上传角色图和表演素材到云服务。不自动重试收费请求。确认生成？`))return;
-  const job=await send('/api/characters/build',{name:$('character-name').value.trim(),quote_fingerprint:characterQuote.fingerprint,
+  const job=await send('/api/characters/build',{name:$('character-name').value.trim(),persona:$('character-persona').value.trim(),quote_fingerprint:characterQuote.fingerprint,
     budget_cny:characterQuote.with_retry_allowance_cny,confirmed:true});
   renderCharacter(job);await refreshCharacters(job.id);toast('角色制作已开始，逐步保存任务编号和费用记录');
 });
@@ -213,8 +214,8 @@ $('stop-character-rehearsal').onclick=()=>busy($('stop-character-rehearsal'),'�
 $('test-character-voice').onclick=()=>busy($('test-character-voice'),'生成测试配音…',async()=>{
   if(!characterJob?.assets?.talk)throw Error('请先创建或载入包含平静说话视频的角色卡');
   if(characterRehearsal?.active)throw Error('请先停止互动彩排，再单独测试配音');
-  const result=await send('/api/scenes/test-voice',{text:$('character-test-text').value.trim()});
-  previewMessage({type:'scene-audio',url:result.audio,text:result.text,action:$('character-test-action').value});
+  const result=await send('/api/characters/test-voice',{text:$('character-test-text').value.trim()});
+  previewMessage({type:'character-audio',url:result.audio,text:result.text,action:$('character-test-action').value});
 });
 window.addEventListener('studio-event',event=>{
   const m=event.detail;
@@ -229,4 +230,37 @@ window.addEventListener('studio-event',event=>{
 });
 (async()=>{try{await loadCharacterConfig();await refreshCharacters();if($('character-select').value)renderCharacter(await api('/api/characters/'+$('character-select').value));}catch(error){toast(error.message,true);}})();
 
-$('open-character-config').onclick=()=>{const panel=$('character-config-panel');panel.open=true;panel.scrollIntoView({behavior:'smooth',block:'start'});};
+$('open-character-config').onclick=()=>workspaceRoute('settings','generation');
+
+function renderCharacterInputs(data){
+  const selected=$('character-input-source').value||data.selected;
+  $('character-input-source').replaceChildren(...data.sources.map(source=>new Option(source.name,source.id)));
+  if(data.sources.some(source=>source.id===selected))$('character-input-source').value=selected;
+  $('character-input-source').onchange=()=>{
+    const source=data.sources.find(source=>source.id===$('character-input-source').value);
+    $('character-input-preview').hidden=!source;
+    if(source)$('character-input-preview').src=source.image;
+  };
+  $('character-input-source').onchange();
+  $('character-input-status').textContent=data.sources.length?'选择已有透明人物图即可本地建卡，不调用生成服务。'+(data.background?'已上传独立背景，将随新卡保存。':'也可上传自己的背景。'):'请上传透明正面人物图，或先生成、导入一张角色卡。';
+}
+api('/api/characters/inputs').then(renderCharacterInputs).catch(error=>toast(error.message,true));
+for(const kind of ['standard','background'])$('character-'+kind+'-upload').onchange=async event=>{
+  const file=event.target.files[0];if(!file)return;
+  event.target.disabled=true;
+  try{
+    const form=new FormData();form.append('file',file);
+    const data=await api('/api/characters/inputs/'+kind,{method:'POST',body:form});
+    if(kind==='standard')$('character-input-source').value='';
+    renderCharacterInputs(data);toast(kind==='standard'?'透明人物图已保存':'背景已保存，下次本地建卡时使用');
+  }catch(error){toast(error.message,true);}finally{event.target.disabled=false;event.target.value='';}
+};
+
+$('download-character-reference').onclick=()=>{
+  const src=$('character-input-preview').getAttribute('src');if(!src)return toast('请先选择或上传人物图',true);
+  const a=document.createElement('a');a.href=src;a.download='极播标准人物.png';a.click();
+};
+$('copy-character-prompt').onclick=()=>{
+  const motion={idle:'安静待机，嘴唇闭合，轻微呼吸和自然眨眼',talk:'友好讲解，嘴部自然反复小幅开合，有轻微表情',thanks:'微笑并缓慢轻轻低头答谢，再自然回到原姿态',greeting:'一只手抬到肩部高度，掌心朝前轻柔挥手两次，再放下回位',present:'一只手抬到腰胸之间，掌心朝上向侧方做介绍手势，再放下回位'}[$('reference-prompt-kind').value];
+  copy('以参考图作为准确首帧与末帧，二维动漫角色，保持同一脸部身份、发型、服装和画风。'+motion+'。固定镜头，人物比例和位置不变，完整保留头顶、双手与鞋子，头发和衣料只有轻柔自然微动，不能牵动肢体。纯绿幕RGB(0,255,0)，无场景、字幕、水印、道具和音效。首尾各约0.5秒回到相同标准姿态，动作柔和自然。','动作提示词已复制');
+};

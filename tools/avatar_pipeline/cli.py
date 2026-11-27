@@ -19,7 +19,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 from PIL import Image
 from image_service import image_client, endpoint, image_payload, response_json, download_result, safe_detail
-from scene_model import load_image, remove_chroma, write_json
+from character_images import load_image, remove_chroma, write_json
 
 IDENTITY = '''Create one front-facing full-body adult anime character asset from this reference.
 Preserve the recognizable face, hairstyle, hair color, costume, ornaments and illustration style.

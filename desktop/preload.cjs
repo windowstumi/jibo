@@ -11,7 +11,7 @@ const bridge={
   obsConnect:()=>ipcRenderer.invoke('desktop:obs-connect'),
   obsSetup:id=>ipcRenderer.invoke('desktop:obs-setup',id),
   obsPresent:kind=>ipcRenderer.invoke('desktop:obs-present',kind),
-  obsSpeaking:value=>ipcRenderer.invoke('desktop:obs-speaking',value),
+  obsSpeaking:(value,emotion)=>ipcRenderer.invoke('desktop:obs-speaking',emotion?{speaking:value,emotion}:value),
   obsStatus:()=>ipcRenderer.invoke('desktop:obs-status')
 };
 contextBridge.exposeInMainWorld('jiboDesktop',bridge);

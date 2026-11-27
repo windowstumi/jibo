@@ -8,7 +8,7 @@ class ObsClient {
     this.client.on?.('MediaInputPlaybackEnded',event=>{
       const name=this.scenes[this.current];
       if(name && event.inputName===name+'-video' && this.assets[this.current]?.loop===false)
-        this.present(this.speaking?'talk':'idle').catch(error=>{this.lastError=error.message;});
+        this.present(this.speaking?(this.speechKind||'talk'):'idle').catch(error=>{this.lastError=error.message;});
     });
   }
   async connect(config){
@@ -63,7 +63,11 @@ class ObsClient {
       inputName:this.scenes[kind]+'-video',mediaAction:'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART'});
     return {kind,requested,fallback:kind!==requested};
   }
-  async setSpeaking(value){this.speaking=value;return this.present(value?'talk':'idle');}
+  async setSpeaking(value,emotion='talk'){
+    this.speaking=value;this.speechKind=emotion==='happy'?'happy':'talk';
+    if(!value&&this.assets[this.current]?.loop===false)return {deferred:true};
+    return this.present(value?this.speechKind:'idle');
+  }
   async close(){this.connected=false;await this.client.disconnect();}
 }
 module.exports={ObsClient};
